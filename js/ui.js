@@ -13,7 +13,7 @@
   const NS = 'http://www.w3.org/2000/svg';
   const DANGER = '#c026d3'; // "this can be captured" — kept apart from the players' red and blue
   const TEXTURE = { minefield: 'hatch' };
-  const PALETTES = window.NP_PALETTES;
+  const COLOURS = window.NP_COLOURS;
   const store = {
     get(k) { try { return localStorage.getItem(`near-peer:${k}`); } catch (e) { return null; } },
     set(k, v) { try { localStorage.setItem(`near-peer:${k}`, v); } catch (e) { /* private window etc. */ } },
@@ -27,7 +27,8 @@
     choice: null, // terrain/unit type picked during the build phase
     unitXY: {},
     rulesOpen: false,
-    settings: { autoEnd: true, threats: false, coords: false, palette: PALETTES[store.get('palette')] ? store.get('palette') : Object.keys(PALETTES)[0] },
+    settings: { autoEnd: true, threats: false, coords: false,
+      view: store.get('view') === 'map' ? 'map' : 'tiles' },
   };
 
   // ---------------------------------------------------------------- helpers
@@ -106,11 +107,8 @@
     const u = id && ui.state.units[id];
     return u && !u.dead ? u : null;
   };
-  // Fill and symbol colour of a hex in the chosen colour scheme.
-  const tileLook = (hex) => {
-    const look = PALETTES[ui.settings.palette].terrain[hex.terrain];
-    return (look.byPlacer && hex.placedBy !== null && look.byPlacer[hex.placedBy]) || look;
-  };
+  // Fill and symbol colour of a hex.
+  const tileLook = (hex) => COLOURS[hex.terrain];
   const chip = (p) => h('span', { class: 'chip', style: `background:${P(p).color}` });
   // An enemy of the player to move that their combined attack beats right now.
   const capturable = (st, u) => st.phase === 'battle' && u.player !== st.current && E.assault(st, u.id).beats;
@@ -316,21 +314,18 @@
     const hits = svg('g', {}, root);
 
     const inBuild = !!buildKind(st);
+    // Zones only matter while building, so only then do empty zone hexes take the player's tint.
+    const groundFill = (hex) => (inBuild && hex.terrain === 'plain' && hex.zone !== null ? P(hex.zone).tint : tileLook(hex).color);
+    const mapView = ui.settings.view === 'map';
+    if (mapView) {
+      window.NP_MAPVIEW.draw(tiles, st, { size: SIZE, pos, look: tileLook, fill: groundFill, color: (p) => P(p).color });
+    }
     for (const k of Object.keys(st.hexes)) {
       const hex = st.hexes[k];
       const t = R.terrain[hex.terrain];
       const { x, y } = pos(k);
-      // Zones only matter while building, so only then do empty zone hexes take the player's tint.
-      const zoneTint = inBuild && hex.terrain === 'plain' && hex.zone !== null;
       const look = tileLook(hex);
-      svg('polygon', { points: points(k, SIZE - 1), fill: zoneTint ? P(hex.zone).tint : look.color, class: 'tile' }, tiles);
-      if (TEXTURE[hex.terrain]) svg('polygon', { points: points(k, SIZE - 1), fill: `url(#${TEXTURE[hex.terrain]})` }, tiles);
-      const capitalOwner = t.capital && hex.owner !== null ? hex.owner : null;
-      if (capitalOwner !== null) {
-        svg('polygon', { points: points(k, SIZE - 5), fill: 'none', stroke: P(capitalOwner).color, 'stroke-width': 4 }, tiles);
-      }
-      // Just a big symbol; names and modifiers are in the hover bar and rules reference.
-      if (hex.terrain !== 'plain') drawIcon('terrain', hex.terrain, x, y, SIZE * 1.4, look.ink, tiles, { opacity: 0.45, width: 1.3 });
+      if (!mapView) drawTile(k, hex, t, x, y, look, groundFill(hex), tiles);
       if (ui.settings.coords) svgText(k, x, y + SIZE * 0.78, 'coord', tiles);
 
       const hit = svg('polygon', { points: points(k, SIZE), class: 'hit' }, hits);
@@ -340,10 +335,6 @@
         if (ui.hover === k) { ui.hover = null; renderOverlay(); renderHoverInfo(); }
       });
     }
-
-    const top = -SIZE * 1.5 * R.boardRadius - SIZE - 12;
-    svgText(`▼ ${P(1).name} side`, 0, top, 'side-label', tiles).style.fill = P(1).soft;
-    svgText(`▲ ${P(0).name} side`, 0, -top + 10, 'side-label', tiles).style.fill = P(0).soft;
 
     ui.unitXY = {};
     for (const k of Object.keys(st.hexes)) {
@@ -361,6 +352,18 @@
     }
 
     renderOverlay();
+  }
+
+  // "Tiles" view: one flat hexagon per tile with a big terrain symbol.
+  function drawTile(k, hex, t, x, y, look, fill, tiles) {
+    svg('polygon', { points: points(k, SIZE - 1), fill, class: 'tile' }, tiles);
+    if (TEXTURE[hex.terrain]) svg('polygon', { points: points(k, SIZE - 1), fill: `url(#${TEXTURE[hex.terrain]})` }, tiles);
+    const capitalOwner = t.capital && hex.owner !== null ? hex.owner : null;
+    if (capitalOwner !== null) {
+      svg('polygon', { points: points(k, SIZE - 5), fill: 'none', stroke: P(capitalOwner).color, 'stroke-width': 4 }, tiles);
+    }
+    // Just a big symbol; names and modifiers are in the hover bar and rules reference.
+    if (hex.terrain !== 'plain') drawIcon('terrain', hex.terrain, x, y, SIZE * 1.4, look.ink, tiles, { opacity: 0.45, width: 1.3 });
   }
 
   function drawUnit(u, cx, cy, r, parent) {
@@ -547,7 +550,7 @@
   function renderPanel() {
     const st = ui.state;
     const sections = [
-      h('header', { class: 'title' }, h('h1', {}, 'Near Peer'), h('span', { class: 'muted' }, 'rules prototype')),
+      h('header', { class: 'title' }, h('h1', {}, 'Near Peer')),
       statusCard(st),
       st.phase === 'over' ? winCard(st) : null,
       buildKind(st) ? buildCard(st) : null,
@@ -677,10 +680,9 @@
         toggle('autoEnd', 'Auto-end turn when nothing is left to do'),
         toggle('threats', 'Show attack arrows on every enemy you can capture'),
         toggle('coords', 'Show hex coordinates')),
-      h('label', { class: 'palette' }, 'Colours ',
-        h('select', { onchange: (e) => { ui.settings.palette = e.target.value; store.set('palette', e.target.value); render(); } },
-          Object.entries(PALETTES).map(([id, p]) => h('option', { value: id, selected: id === ui.settings.palette }, p.name)))),
-      h('p', { class: 'hint' }, PALETTES[ui.settings.palette].note));
+      h('label', { class: 'setting' }, 'View ',
+        h('select', { onchange: (e) => { ui.settings.view = e.target.value; store.set('view', e.target.value); render(); } },
+          [['tiles', 'Tiles'], ['map', 'Map']].map(([id, name]) => h('option', { value: id, selected: id === ui.settings.view }, name)))));
   }
 
   function armiesCard(st) {

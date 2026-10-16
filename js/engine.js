@@ -29,7 +29,7 @@
 
   function newGame({ options } = {}) {
     const hexes = {};
-    for (const k of Hex.all(R.boardRadius)) hexes[k] = { terrain: 'plain', owner: null, placedBy: null, zone: null };
+    for (const k of Hex.all(R.boardRadius)) hexes[k] = { terrain: 'plain', owner: null, zone: null };
     R.zones.forEach((keys, p) => keys.forEach((k) => { hexes[k].zone = p; }));
     return {
       phase: 'terrain', // terrain → units → battle → over
@@ -53,7 +53,6 @@
     for (const [k, [t, owner]] of Object.entries(terrain)) {
       s.hexes[k].terrain = t;
       s.hexes[k].owner = R.terrain[t].capital ? owner : null;
-      s.hexes[k].placedBy = owner;
     }
     for (const u of units) {
       const id = u.id || `p${u.player}-${u.type}`;
@@ -229,7 +228,6 @@
     need(hex.terrain === 'plain', 'That hex already has terrain');
     hex.terrain = terrain;
     hex.owner = R.terrain[terrain].capital ? s.current : null; // only capitals belong to anyone
-    hex.placedBy = s.current; // just a record (some colour schemes use it)
     sup.splice(sup.indexOf(terrain), 1);
     log(s, `placed ${R.terrain[terrain].name} at ${to}`);
     advancePlacement(s, 'terrain');

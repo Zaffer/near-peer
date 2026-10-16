@@ -13,9 +13,9 @@
     boardRadius: 2, // 3 hexes per side = 19 hexes (Catan layout)
 
     players: [
-      // color: units and markers · soft: text on the dark board · tint: their zone during the build
-      { name: 'Blue', color: '#2563eb', soft: '#8fb3ff', tint: '#d5e2fb' },
-      { name: 'Red', color: '#dc2626', soft: '#ff9a9a', tint: '#f9d6d6' },
+      // color: units and markers · tint: their zone during the build
+      { name: 'Blue', color: '#2563eb', tint: '#d5e2fb' },
+      { name: 'Red', color: '#dc2626', tint: '#f9d6d6' },
     ],
     firstPlayer: 0, // Blue places first and moves first
 
@@ -51,7 +51,7 @@
 
     // mods apply to any unit standing on the hex, whoever placed the tile. Only a
     // capital belongs to a player (that's what you win by taking).
-    // Colours live in palettes.js.
+    // Colours live in colours.js.
     terrain: {
       plain:     { name: 'Plain',     mods: {} },
       capital:   { name: 'Capital',   mods: { attack: 1, defence: 1 }, capital: true },

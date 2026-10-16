@@ -33,6 +33,22 @@ How the rules got to where they are, and the changes still to consider.
 
 Newest first.
 
+### 2026-10-16 — One colour set; tidier board
+- **What:** The colour picker is gone. Terrain uses one set ("Pastel stone"), in `js/colours.js`. The other schemes,
+  including the colour-by-placer one, were dropped. The "Blue side / Red side" labels are gone from the board.
+- **Why:** Settled on a look. Fewer options to maintain.
+
+### 2026-10-16 — Optional "Map" view of the board
+- **What:** A second way to draw the board (panel → View → Map), in `js/mapview.js`. Terrain blends at the
+  hex edges. A road tile is a generic network with an exit on all six sides (a straight road crossed by one that
+  forks in two on each side), so it joins up at any angle. Towns and capitals next to a road get a short street to
+  meet it. Towns are clusters of roofs, capitals a dense city with an owner-coloured border and flag,
+  fortifications scattered trenches and gun pits, minefields neat rows of mines. The straight road through
+  each road tile keeps a dashed centre line. A river (a filled, meandering shape) runs along the
+  edges between Blue's and Red's starting zones, with a bridge wherever a road crosses it.
+- **Why:** To look like a real map (Catan / Civilization style) rather than separate tiles.
+- **Rules:** None. The river is scenery only: it doesn't block or slow movement. The "Tiles" view is unchanged.
+
 ### 2026-10-16 — Bold terrain colours; towns remember who placed them (colour only)
 - **What:** Plain white, minefield black, road grey, fortification dark grey. Capitals and towns take their
   placer's colour: Blue pink capital / purple town, Red orange capital / yellow town. Tiles show just a big
@@ -40,7 +56,7 @@ Newest first.
 - **Why:** Tighter, bolder board to play with first; finesse later.
 - **Update (same day):** Colours moved out of `rules.js` into switchable schemes in `js/palettes.js`
   ("Bold, by player" is the scheme above). Every tile records `placedBy` for schemes that colour by player.
-  The rules ignore it; only a capital has an `owner`. Units now sit centred on their hex.
+  The rules ignore it; only a capital has an `owner`. *(Superseded: one colour set now, and `placedBy` is gone.)* Units now sit centred on their hex.
 
 ### 2026-10-16 — Attack becomes passive: combined attack on capture
 - **What:** The attack action is gone, along with "one attack per turn" and the *vulnerable* state. A turn is now
@@ -102,7 +118,7 @@ Newest first.
 - **Why:** Ownership is irrelevant in play, because terrain affects any unit standing on it.
   Capitals are the exception: taking the *enemy's* capital is how you win.
 
-### 2026-10-15 — First playable ruleset (prototype v0.1)
+### 2026-10-15 — First playable ruleset (v0.1)
 These came from clarifying the original description before building.
 
 | Rule | Decision | Why |
@@ -115,7 +131,7 @@ These came from clarifying the original description before building.
 | Turn structure | One attack and one move per turn, in either order. The move is one unit's continuous path. *(Replaced 2026-10-16 by passive combined attack.)* | Confirmed in discussion. |
 | Capturing | Doesn't end the capturing unit's move. | Confirmed in discussion. See A4. |
 | Blocking | All units block normal units, including your own. Coverts can pass through. | Confirmed in discussion. |
-| Stacking | A hex holds at most 2 units, and at most one of them can be a normal unit. Two coverts can share. A normal unit may move onto a lone covert. | Confirmed in discussion. The normal-onto-covert part is a prototype rule (see A5). |
+| Stacking | A hex holds at most 2 units, and at most one of them can be a normal unit. Two coverts can share. A normal unit may move onto a lone covert. | Confirmed in discussion. The normal-onto-covert part is provisional (see A5). |
 | Same-hex attacks | Units sharing a hex can attack each other (distance 0). Switch: `allowSameHexAttack`. *(Now: a unit on the enemy's hex adds to the combined attack.)* | Confirmed in discussion. |
 | Range | "Range 2" means up to 2 hexes, adjacent included, with no line of sight. | Confirmed in discussion. See A2. |
 | Capital win | Your unit is on the enemy capital and no enemy unit is there. An enemy covert sharing it blocks the win; your own covert doesn't. The win is instant, even when only passing through. *(2026-10-16: a Covert now wins even with an enemy there.)* | You said a covert sharing the capital doesn't count. Your own covert alongside was my call, since the capital is clearly yours. See A1. |

@@ -1,4 +1,4 @@
-# Near Peer — rules (prototype v0.2)
+# Near Peer — rules (v0.2)
 
 The agreed rules as implemented. Numbers and switches live in [js/rules.js](js/rules.js);
 [tests.html](tests.html) checks each rule below.
@@ -29,7 +29,7 @@ The agreed rules as implemented. Numbers and switches live in [js/rules.js](js/r
 ## Terrain
 A terrain tile's modifier applies to **any** unit standing on it, from either side.
 Once placed, terrain belongs to no one, except each capital, which stays its player's (that's what you win by taking).
-Colours are cosmetic and switchable (see `js/palettes.js`).
+Colours are cosmetic (see `js/colours.js`).
 - Capital: +1 atk, +1 def. Town: +1 atk. Fortification: +1 def.
 - Road: +1 movement. Minefield: −1 movement.
 
@@ -72,7 +72,7 @@ Every row is checked by a test in `tests/rules.test.js` ("ex 1" … "ex 14").
   - A covert can share a hex with one other unit, friend or enemy.
   - Two coverts can share a hex.
   - Two normal units can never share a hex.
-- Prototype rule: a normal unit may also move onto a hex holding a lone covert.
+- For now, a normal unit may also move onto a hex holding a lone covert.
 - Normal units are blocked by any unit that isn't sharable, including your own.
 
 ## Attack and capturing

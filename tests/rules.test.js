@@ -234,7 +234,7 @@
     ok(!share(s, 'p0-covert', ROW[1]).units['p1-covert'].dead);
   });
 
-  test('a normal unit may move onto a lone covert without capturing it (prototype rule)', () => {
+  test('a normal unit may move onto a lone covert without capturing it (for now)', () => {
     const s = scenario({ units: [{ player: 0, type: 'light', hex: ROW[0] }, { player: 1, type: 'covert', hex: ROW[1] }] });
     const s2 = share(s, 'p0-light', ROW[1]);
     ok(!s2.units['p1-covert'].dead);

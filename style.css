@@ -48,7 +48,6 @@ body { margin: 0; background: var(--bg); }
 .tile { stroke: var(--table); stroke-width: 4; }
 .hit { fill: transparent; cursor: pointer; }
 .coord { font-size: 9px; text-anchor: middle; fill: #000; opacity: .45; }
-.side-label { font-size: 12px; font-weight: 700; text-anchor: middle; letter-spacing: .04em; }
 .ulabel { font-size: 15px; font-weight: 800; text-anchor: middle; fill: #fff; }
 .ustats {
   font-size: 10.5px; font-weight: 700; text-anchor: middle; fill: #222;
@@ -214,5 +213,5 @@ details summary { cursor: pointer; font-weight: 600; }
 .pick-skill { display: inline-flex; margin-left: auto; color: #6d28d9; }
 .pick-name { width: 100%; }
 
-.palette { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; }
-.palette select { font: inherit; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--line); }
+.setting { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; }
+.setting select { font: inherit; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--line); }
