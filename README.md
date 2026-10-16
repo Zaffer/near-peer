@@ -9,6 +9,7 @@ Open `index.html` in a browser. Double-clicking the file works fine.
 - `index.html?quick` skips the build phase with a random setup.
 - Keys: `E` end turn (or pass), `Z` undo, `Esc` deselect.
 - Hover any unit to see curved arrows from every enemy unit attacking it, with the total vs its defence.
+- To move, select a unit and click where it should go, or drag it there (works on touch screens). An arrow shows where it's heading: in your colour if it can get there, magenta if it would capture, grey if it can't. A hex more than one step away is reached by the shortest route that doesn't fight on the way.
 
 The rules are in [RULES.md](RULES.md). Ideas and past rule decisions are tracked in [AMENDMENTS.md](AMENDMENTS.md). Open `tests.html` to run the rule tests.
 
@@ -22,5 +23,6 @@ The rules are in [RULES.md](RULES.md). Ideas and past rule decisions are tracked
 | `js/colours.js` | Terrain colours. Purely visual. |
 | `js/mapview.js` | The "Graphic" map style: blended terrain, joined-up roads, river between the zones. Purely visual. |
 | `js/unitart.js` | The "Graphic" unit style: illustrated tokens (infantry, tank, truck-mounted howitzer, special forces, general). Purely visual. |
+| `js/effects.js` | Short animations after each action: units sliding between hexes, attack streaks and captures, minefield blasts, river splashes, taking the capital, whose turn it is. Purely visual. |
 | `js/icons.js` | One SVG icon per unit and terrain type, using the same type ids as `rules.js`. |
 | `tests/rules.test.js` | One test per rule. Update the matching test when you change a rule on purpose. |

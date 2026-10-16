@@ -26,6 +26,9 @@
     hover: null, // hex key
     choice: null, // terrain/unit type picked during the build phase
     unitXY: {},
+    pointer: null, // cursor position in board coordinates, for the aim arrow
+    drag: null, // { id, pointerId, x, y, active } while dragging a unit
+    plans: {}, // "unitId>hex" → planned route, for the current state
     rulesOpen: false,
     settings: { autoEnd: true, threats: false, coords: false,
       // How the board and units are drawn: 'symbols' (flat, schematic) or 'graphic' (illustrated).
@@ -135,12 +138,14 @@
     render();
   }
 
+  // One action, or a list of them (a route of steps) that undo treats as one.
   function commit(action) {
+    const actions = [].concat(action);
     const prev = ui.state;
-    let next;
+    let next = prev;
     try {
-      next = E.apply(prev, action);
-      if (ui.settings.autoEnd && next.phase === 'battle' && action.type !== 'endTurn' && !E.hasAnyAction(next)) {
+      for (const a of actions) next = E.apply(next, a);
+      if (ui.settings.autoEnd && next.phase === 'battle' && actions[0].type !== 'endTurn' && !E.hasAnyAction(next)) {
         next = E.apply(next, { type: 'endTurn', auto: true });
       }
     } catch (e) {
@@ -152,8 +157,23 @@
     if (next.current !== prev.current || next.phase !== prev.phase) ui.selected = null;
     if (!liveUnit(ui.selected)) ui.selected = null;
     syncChoice();
+    const before = ui.unitXY;
     render();
+    playEffects(prev, next, actions, before);
     return true;
+  }
+
+  function playEffects(prev, next, actions, before) {
+    if (!window.NP_FX) return;
+    const root = $('board');
+    window.NP_FX.play(prev, next, actions, {
+      layer: ui.fxLayer, size: SIZE, before, after: ui.unitXY, pos,
+      unitEl: (id) => root.querySelector(`[data-unit="${id}"]`),
+      token: drawToken,
+      color: (p) => P(p).color,
+      // The river is only drawn on the Graphic map, so only splash there.
+      crossing: (hexes, a, b) => (ui.settings.mapStyle === 'graphic' && window.NP_MAPVIEW ? window.NP_MAPVIEW.crossing(hexes, a, b) : null),
+    });
   }
 
   function undo() {
@@ -190,9 +210,80 @@
     if (!sup.includes(ui.choice)) ui.choice = sup[0] || null;
   }
 
+  // ---------------------------------------------------------------- moving
+
+  const movesLeft = (s) => (s.turnState.move ? s.turnState.move.remaining : 0);
+
+  // Steps that take a unit to hex `to` this move: fewest steps, then the most
+  // movement left. Only the last step may land on an enemy, so the route never
+  // fights on the way. Null if it can't get there.
+  function findRoute(st, unitId, to, capture = true) {
+    let frontier = [{ s: Object.assign({}, st, { log: [] }), steps: [] }];
+    const seen = new Set();
+    while (frontier.length) {
+      let best = null;
+      const next = [];
+      for (const { s, steps } of frontier) {
+        const u = s.units[unitId];
+        for (const n of Hex.neighbors(u.hex, R.boardRadius)) {
+          const last = n === to;
+          if (!last && E.unitsAt(s, n).some((o) => o.player !== u.player)) continue;
+          const a = last ? { type: 'step', unitId, to: n, capture } : { type: 'step', unitId, to: n };
+          const s2 = E.tryApply(s, a);
+          if (!s2) continue;
+          if (last) {
+            if (!best || movesLeft(s2) > movesLeft(best.s)) best = { s: s2, steps: [...steps, a] };
+            continue;
+          }
+          const ts = s2.turnState;
+          const sig = `${n}|${movesLeft(s2)}|${ts.moveDone}|${[...new Set(ts.move.visited)].sort().join(';')}`;
+          if (seen.has(sig)) continue;
+          seen.add(sig);
+          next.push({ s: s2, steps: [...steps, a] });
+        }
+      }
+      if (best) return best;
+      frontier = next;
+    }
+    return null;
+  }
+
+  // Can this unit start or carry on the move this turn?
+  function canAct(st, u) {
+    const ts = st.turnState;
+    return !!u && st.phase === 'battle' && u.player === st.current && !ts.moveDone && (!ts.move || ts.move.unitId === u.id);
+  }
+
+  // Route to a hex plus what it captures, cached until the state changes.
+  function plan(st, unitId, k) {
+    if (ui.plans.state !== st) ui.plans = { state: st };
+    const key = `${unitId}>${k}`;
+    if (!(key in ui.plans)) {
+      const r = findRoute(st, unitId, k);
+      ui.plans[key] = r && {
+        steps: r.steps,
+        caps: E.unitsAt(st, k).filter((o) => o.player !== st.units[unitId].player && r.s.units[o.id].dead),
+      };
+    }
+    return ui.plans[key];
+  }
+
+  // Menu items for moving unit `mine` to hex k (by any route), including "move in beside".
+  function moveItems(st, mine, k) {
+    const items = [];
+    const p = plan(st, mine.id, k);
+    if (!p) return items;
+    const names = p.caps.map((c) => R.units[c.type].name).join(' + ');
+    items.push({ label: p.caps.length ? `Move here and capture ${names}` : 'Move here', run: () => commit(p.steps) });
+    const beside = p.caps.length && findRoute(st, mine.id, k, false);
+    if (beside) items.push({ label: `Move in beside ${names} (no capture)`, run: () => commit(beside.steps) });
+    return items;
+  }
+
   // ---------------------------------------------------------------- input
 
   function onHexClick(k, ev) {
+    if (ui.suppressClick) return;
     hideMenu();
     const st = ui.state;
     const kind = buildKind(st);
@@ -215,19 +306,7 @@
           items.push({ label: `Capture ${unitName(st, id)} here (uses your move)`, run: () => commit({ type: 'capture', unitId: mine.id, targetId: id }) });
         }
       }
-      const step = { type: 'step', unitId: mine.id, to: k };
-      const next = E.tryApply(st, step);
-      if (next) {
-        const caps = here.filter((u) => u.player !== mine.player && next.units[u.id].dead);
-        items.push({
-          label: caps.length ? `Move here and capture ${caps.map((c) => R.units[c.type].name).join(' + ')}` : 'Move here',
-          run: () => commit(step),
-        });
-        const beside = Object.assign({}, step, { capture: false });
-        if (caps.length && E.isLegal(st, beside)) {
-          items.push({ label: `Move in beside ${caps.map((c) => R.units[c.type].name).join(' + ')} (no capture)`, run: () => commit(beside) });
-        }
-      }
+      if (k !== mine.hex) items.push(...moveItems(st, mine, k));
     }
 
     const selectable = here
@@ -304,6 +383,7 @@
     };
     marker('arrow-hit', DANGER);
     marker('arrow-miss', '#6b7280');
+    R.players.forEach((pl, i) => marker(`arrow-p${i}`, pl.color));
     const hatch = svg('pattern', { id: 'hatch', width: 7, height: 7, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' }, defs);
     svg('line', { x1: 0, y1: 0, x2: 0, y2: 7, stroke: '#fff', 'stroke-opacity': 0.14, 'stroke-width': 3 }, hatch);
     const shadow = svg('filter', { id: 'lift', x: '-50%', y: '-50%', width: '200%', height: '200%' }, defs);
@@ -314,6 +394,10 @@
     svg('g', { id: 'ov-under', 'pointer-events': 'none' }, root);
     const unitsLayer = svg('g', { 'pointer-events': 'none' }, root);
     svg('g', { id: 'ov-over', 'pointer-events': 'none' }, root);
+    // Effects and the aim arrow outlive a redraw, so an effect isn't cut short by the next click.
+    ui.fxLayer = ui.fxLayer || svg('g', { class: 'fx', 'pointer-events': 'none' });
+    ui.aimLayer = ui.aimLayer || svg('g', { class: 'aim', 'pointer-events': 'none' });
+    root.append(ui.fxLayer, ui.aimLayer);
     const hits = svg('g', {}, root);
 
     const inBuild = !!buildKind(st);
@@ -331,7 +415,9 @@
       if (!mapView) drawTile(k, hex, t, x, y, look, groundFill(hex), tiles);
       if (ui.settings.coords) svgText(k, x, y + SIZE * 0.78, 'coord', tiles);
 
-      const hit = svg('polygon', { points: points(k, SIZE), class: 'hit' }, hits);
+      // "grab": a unit here can be dragged (and the browser won't scroll the page instead).
+      const grab = E.unitsAt(st, k).some((u) => canAct(st, u));
+      const hit = svg('polygon', { points: points(k, SIZE), class: grab ? 'hit grab' : 'hit' }, hits);
       hit.addEventListener('click', (ev) => onHexClick(k, ev));
       hit.addEventListener('mouseenter', () => { ui.hover = k; renderOverlay(); renderHoverInfo(); });
       hit.addEventListener('mouseleave', () => {
@@ -355,6 +441,7 @@
     }
 
     renderOverlay();
+    drawAim();
   }
 
   // Symbols map: one flat hexagon per tile with a big terrain symbol.
@@ -371,29 +458,14 @@
 
   function drawUnit(u, cx, cy, r, parent) {
     const st = ui.state;
-    const def = R.units[u.type];
     const sts = E.stats(st, u.id);
-    const g = svg('g', {}, parent);
+    const g = svg('g', { 'data-unit': u.id }, parent);
     if (capturable(st, u)) svg('circle', { cx, cy, r: r + 6, class: 'capt-ring' }, g);
     if (ui.selected === u.id) {
       svg('circle', { cx, cy, r: r + 4, class: 'sel-ring-outer' }, g);
       svg('circle', { cx, cy, r: r + 4, class: 'sel-ring' }, g);
     }
-    const dashed = R.logic.hasSkill(u.type, 'insurgency');
-    if (ui.settings.unitStyle === 'graphic' && window.NP_UNIT_ART && window.NP_UNIT_ART.has(u.type)) {
-      // Graphic units: an illustrated token (unitart.js, drawn at radius 18) inside a ring in the player's colour.
-      const tg = svg('g', { transform: `translate(${cx},${cy}) scale(${r / 18})` }, g);
-      svg('circle', { r: 18, fill: P(u.player).tint, filter: 'url(#lift)' }, tg);
-      const art = svg('g', { 'clip-path': 'url(#unit-clip)' }, tg);
-      svg('circle', { r: 17, fill: 'none', stroke: P(u.player).color, 'stroke-width': 2.4, 'stroke-dasharray': dashed ? '4 2.4' : null }, tg);
-      window.NP_UNIT_ART.draw(u.type, art, svg('g', {}, tg), P(u.player).color); // second layer: the part that sticks out
-    } else {
-      svg('circle', {
-        cx, cy, r, fill: P(u.player).color, stroke: '#fff', 'stroke-width': 2, filter: 'url(#lift)',
-        'stroke-dasharray': dashed ? '4 3' : null,
-      }, g);
-      if (!drawIcon('units', u.type, cx, cy, r * 1.15, '#fff', g, { width: 2.6 })) svgText(def.short, cx, cy + 5, 'ulabel', g);
-    }
+    drawToken(u, cx, cy, r, g);
 
     // ⚔ atk  🛡 def under the counter; green/red when terrain changes the number.
     const sy = cy + r + 11;
@@ -410,6 +482,25 @@
     if (st.phase === 'battle' && mv && mv.unitId === u.id && !st.turnState.moveDone) {
       svg('circle', { cx: cx + r * 0.8, cy: cy - r * 0.8, r: 7, class: 'mv-badge' }, g);
       svgText(String(mv.remaining), cx + r * 0.8, cy - r * 0.8 + 3.5, 'mv-badge-text', g);
+    }
+  }
+
+  // Just the counter itself (no rings or stats). Effects use it too, for a unit being captured.
+  function drawToken(u, cx, cy, r, g) {
+    const dashed = R.logic.hasSkill(u.type, 'insurgency');
+    if (ui.settings.unitStyle === 'graphic' && window.NP_UNIT_ART && window.NP_UNIT_ART.has(u.type)) {
+      // Graphic units: an illustrated token (unitart.js, drawn at radius 18) inside a ring in the player's colour.
+      const tg = svg('g', { transform: `translate(${cx},${cy}) scale(${r / 18})` }, g);
+      svg('circle', { r: 18, fill: P(u.player).tint, filter: 'url(#lift)' }, tg);
+      const art = svg('g', { 'clip-path': 'url(#unit-clip)' }, tg);
+      svg('circle', { r: 17, fill: 'none', stroke: P(u.player).color, 'stroke-width': 2.4, 'stroke-dasharray': dashed ? '4 2.4' : null }, tg);
+      window.NP_UNIT_ART.draw(u.type, art, svg('g', {}, tg), P(u.player).color); // second layer: the part that sticks out
+    } else {
+      svg('circle', {
+        cx, cy, r, fill: P(u.player).color, stroke: '#fff', 'stroke-width': 2, filter: 'url(#lift)',
+        'stroke-dasharray': dashed ? '4 3' : null,
+      }, g);
+      if (!drawIcon('units', u.type, cx, cy, r * 1.15, '#fff', g, { width: 2.6 })) svgText(R.units[u.type].short, cx, cy + 5, 'ulabel', g);
     }
   }
 
@@ -531,6 +622,126 @@
     if (!mv || mv.path.length < 2) return;
     const pts = mv.path.map((k) => { const { x, y } = pos(k); return `${x},${y}`; }).join(' ');
     svg('polyline', { points: pts, class: 'move-path' }, parent);
+  }
+
+  // ---------------------------------------------------------------- aim arrow and dragging
+
+  // Board coordinates of a pointer event.
+  function boardPoint(ev) {
+    const m = $('board').getScreenCTM();
+    if (!m) return null;
+    const p = new DOMPoint(ev.clientX, ev.clientY).matrixTransform(m.inverse());
+    return { x: p.x, y: p.y };
+  }
+
+  // The hex under a board point, if any.
+  function hexAt(p) {
+    if (!p) return null;
+    let best = null;
+    let bd = Infinity;
+    for (const k of Object.keys(ui.state.hexes)) {
+      const c = pos(k);
+      const d = Math.hypot(c.x - p.x, c.y - p.y);
+      if (d < bd) { bd = d; best = k; }
+    }
+    return bd <= SIZE ? best : null;
+  }
+
+  // The unit the aim arrow starts from: the one being dragged, else the selected unit if it can still move.
+  function aimUnit() {
+    const u = liveUnit(ui.drag && ui.drag.active ? ui.drag.id : ui.selected);
+    return canAct(ui.state, u) ? u : null;
+  }
+
+  // An arrow from the unit to the pointer: in the player's colour if the unit can get there,
+  // magenta if it would capture, grey if it can't. Dots mark the hexes on the way.
+  function drawAim() {
+    const layer = ui.aimLayer;
+    if (!layer) return;
+    layer.replaceChildren();
+    const st = ui.state;
+    const u = aimUnit();
+    const p = ui.pointer;
+    const from = u && ui.unitXY[u.id];
+    if (!from || !p) return;
+    const len = Math.hypot(p.x - from.x, p.y - from.y);
+    if (len < from.r + 10) return;
+    const k = hexAt(p);
+    const route = k && k !== u.hex ? plan(st, u.id, k) : null;
+    const kind = !route ? 'miss' : route.caps.length ? 'hit' : `p${u.player}`;
+    const color = !route ? '#6b7280' : route.caps.length ? DANGER : P(u.player).color;
+    if (route) {
+      for (const a of route.steps.slice(0, -1)) {
+        const c = pos(a.to);
+        svg('circle', { cx: c.x, cy: c.y, r: 4.5, fill: color, class: 'aim-dot' }, layer);
+      }
+    }
+    const s = { x: from.x + ((p.x - from.x) / len) * (from.r + 4), y: from.y + ((p.y - from.y) / len) * (from.r + 4) };
+    const d = `M${s.x.toFixed(1)},${s.y.toFixed(1)} L${p.x.toFixed(1)},${p.y.toFixed(1)}`;
+    svg('path', { d, class: 'aim-casing' }, layer);
+    svg('path', { d, class: route ? 'aim-line' : 'aim-line miss', stroke: color, 'marker-end': `url(#arrow-${kind})` }, layer);
+  }
+
+  // Dropping a dragged unit on a hex: the same choices as clicking it.
+  function dropOn(id, k, ev) {
+    const st = ui.state;
+    const u = liveUnit(id);
+    if (!u || !k || k === u.hex) return;
+    const items = moveItems(st, u, k);
+    if (!items.length) toast(`The ${unitName(st, id)} can't get there this turn`);
+    else if (items.length === 1) items[0].run();
+    else showMenu(items, ev.clientX, ev.clientY);
+  }
+
+  // Mouse, pen and touch alike: press on one of your units and drag to where it should go.
+  // A press without much movement is an ordinary click.
+  function setupPointer() {
+    const root = $('board');
+    root.addEventListener('pointerdown', (ev) => {
+      if (ev.button !== 0) return;
+      ui.pointer = boardPoint(ev);
+      const st = ui.state;
+      const k = hexAt(ui.pointer);
+      const mine = k ? E.unitsAt(st, k).filter((u) => canAct(st, u)) : [];
+      const u = mine.find((x) => x.id === ui.selected) || mine[0];
+      ui.drag = u ? { id: u.id, pointerId: ev.pointerId, x: ev.clientX, y: ev.clientY, active: false } : null;
+    });
+    root.addEventListener('pointermove', (ev) => {
+      ui.pointer = boardPoint(ev);
+      const d = ui.drag;
+      if (d && d.pointerId === ev.pointerId && !d.active && Math.hypot(ev.clientX - d.x, ev.clientY - d.y) > 8) {
+        d.active = true;
+        try { root.setPointerCapture(ev.pointerId); } catch (e) { /* pointer already gone */ }
+        hideMenu();
+        if (ui.selected !== d.id) {
+          ui.selected = d.id;
+          render();
+          return;
+        }
+      }
+      drawAim();
+    });
+    root.addEventListener('pointerup', (ev) => {
+      const d = ui.drag;
+      ui.drag = null;
+      if (ev.pointerType !== 'mouse') ui.pointer = null; // no cursor to follow on a touch screen
+      if (d && d.active) {
+        ui.suppressClick = true; // the click that follows a drag isn't a click
+        setTimeout(() => { ui.suppressClick = false; }, 0);
+        dropOn(d.id, hexAt(boardPoint(ev)), ev);
+      }
+      drawAim();
+    });
+    root.addEventListener('pointercancel', () => {
+      ui.drag = null;
+      ui.pointer = null;
+      drawAim();
+    });
+    root.addEventListener('pointerleave', () => {
+      if (ui.drag) return;
+      ui.pointer = null;
+      drawAim();
+    });
   }
 
   function renderHoverInfo() {
@@ -748,6 +959,7 @@
   // Handy from the browser console, e.g. NearPeer.ui.state or NearPeer.commit({ type: 'endTurn' }).
   window.NearPeer = { ui, commit, undo, render, newGame, randomFill };
 
+  setupPointer();
   newGame();
   // index.html?quick skips straight to the battle with a random setup.
   if (new URLSearchParams(location.search).has('quick')) {

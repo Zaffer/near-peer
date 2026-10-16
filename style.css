@@ -47,6 +47,11 @@ body { margin: 0; background: var(--bg); }
 /* ---- board svg ---- */
 .tile { stroke: var(--table); stroke-width: 4; }
 .hit { fill: transparent; cursor: pointer; }
+.hit.grab { cursor: grab; touch-action: none; } /* drag a unit without scrolling the page */
+.aim-casing { fill: none; stroke: #fff; stroke-opacity: .75; stroke-width: 7; stroke-linecap: round; }
+.aim-line { fill: none; stroke-width: 3.5; stroke-linecap: round; }
+.aim-line.miss { stroke-dasharray: 6 5; }
+.aim-dot { stroke: #fff; stroke-width: 1.5; }
 .coord { font-size: 9px; text-anchor: middle; fill: #000; opacity: .45; }
 .ulabel { font-size: 15px; font-weight: 800; text-anchor: middle; fill: #fff; }
 .ustats {

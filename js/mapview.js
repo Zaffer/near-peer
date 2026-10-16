@@ -102,7 +102,7 @@
       return hexes[n] ? n : null;
     };
     const joined = (a, b) => b && (terrain(a) === 'road' ? LINKS[terrain(b)] : terrain(b) === 'road' && LINKS[terrain(a)]);
-    const crossesRiver = (a, b) => b && hexes[a].zone !== null && hexes[b].zone !== null && hexes[a].zone !== hexes[b].zone;
+    const crossesRiver = (a, b) => b && crossing(hexes, a, b) !== null;
     // Directions (0–5) toward a neighbouring road (for towns and capitals) or road/town/capital (for roads).
     const spokes = (k) => [0, 1, 2, 3, 4, 5].filter((i) => joined(k, neighbour(k, i)));
     // Angle from a hex's centre toward each of its road links.
@@ -410,5 +410,15 @@
     }
   }
 
-  global.NP_MAPVIEW = { draw };
+  // How a step from hex a to hex b meets the river: 'bridge' where a road
+  // crosses it, 'ford' anywhere else on it, null if it doesn't cross.
+  function crossing(hexes, a, b) {
+    const A = hexes[a];
+    const B = hexes[b];
+    if (!A || !B || A.zone === null || B.zone === null || A.zone === B.zone) return null;
+    const road = (A.terrain === 'road' && LINKS[B.terrain]) || (B.terrain === 'road' && LINKS[A.terrain]);
+    return road ? 'bridge' : 'ford';
+  }
+
+  global.NP_MAPVIEW = { draw, crossing };
 })(typeof window !== 'undefined' ? window : globalThis);

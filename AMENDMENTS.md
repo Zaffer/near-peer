@@ -33,6 +33,17 @@ How the rules got to where they are, and the changes still to consider.
 
 Newest first.
 
+### 2026-10-16 — Board effects; aim arrow and drag to move
+- **What:** Short effects after each action (`js/effects.js`): units slide hex to hex; on a capture every other
+  unit adding to the attack fires a streak at the target and it pops; entering a minefield gives a small blast and
+  the unit shudders; crossing the river where there's no bridge makes a splash (Graphic map only); taking the capital
+  sends out rings in the winner's colour with a banner; a new turn shows "Blue/Red to play"; placed units drop in
+  and placed terrain lands with a puff of dust. Turned off when the system asks for reduced motion.
+  A selected unit that can still move has an arrow to the cursor. You can also drag a unit to where it should go
+  (mouse or touch). Clicking or dropping on a hex further than one step away moves there by the shortest route that
+  doesn't fight on the way (most movement left on a tie), and undo takes back the whole route.
+- **Rules:** None. A route is just the same single steps taken one after another.
+
 ### 2026-10-16 — Map and unit styles chosen separately
 - **What:** The View picker is now two pickers in the panel: **Map** (Symbols / Graphic) and **Units** (Symbols / Graphic).
   Symbols is the flat look (plain tiles with a big terrain symbol, NATO-style unit symbols); Graphic is the illustrated
