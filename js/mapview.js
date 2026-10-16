@@ -1,5 +1,5 @@
 /*
- * Near Peer — "Map" view of the board. Purely visual: the same hexes drawn
+ * Near Peer — the "Graphic" map style. Purely visual: the same hexes drawn
  * as one continuous landscape instead of separate tiles.
  *
  * - Terrain colours bleed softly into each other at the hex edges.

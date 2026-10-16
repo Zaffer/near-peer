@@ -33,6 +33,20 @@ How the rules got to where they are, and the changes still to consider.
 
 Newest first.
 
+### 2026-10-16 — Map and unit styles chosen separately
+- **What:** The View picker is now two pickers in the panel: **Map** (Symbols / Graphic) and **Units** (Symbols / Graphic).
+  Symbols is the flat look (plain tiles with a big terrain symbol, NATO-style unit symbols); Graphic is the illustrated
+  map and unit pictures. Any mix works, and both start on Graphic. The choice is remembered in the browser.
+- **Why:** Mix and match, e.g. the illustrated map with the clearer unit symbols.
+
+### 2026-10-16 — Illustrated unit tokens in the Map view
+- **What:** In the Map view, units are small pictures in the map's style (`js/unitart.js`): Light = infantry
+  (modern helmet, plate carrier, assault rifle), Armour = main battle tank, Ranged = rocket artillery truck,
+  Covert = spy (fedora, dark glasses, trench coat), Hero = general with a sabre. Uniforms and vehicles take the
+  player's colour, on a pale team-tinted disc with a ring in the team colour (dashed for the Covert, as before).
+  The Tiles view keeps the plain symbols.
+- **Why:** Match the units to the illustrated map. Unit names and rules are unchanged.
+
 ### 2026-10-16 — One colour set; tidier board
 - **What:** The colour picker is gone. Terrain uses one set ("Pastel stone"), in `js/colours.js`. The other schemes,
   including the colour-by-placer one, were dropped. The "Blue side / Red side" labels are gone from the board.

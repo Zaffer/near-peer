@@ -28,7 +28,9 @@
     unitXY: {},
     rulesOpen: false,
     settings: { autoEnd: true, threats: false, coords: false,
-      view: store.get('view') === 'map' ? 'map' : 'tiles' },
+      // How the board and units are drawn: 'symbols' (flat, schematic) or 'graphic' (illustrated).
+      mapStyle: store.get('map-style') === 'symbols' ? 'symbols' : 'graphic',
+      unitStyle: store.get('unit-style') === 'symbols' ? 'symbols' : 'graphic' },
   };
 
   // ---------------------------------------------------------------- helpers
@@ -306,6 +308,7 @@
     svg('line', { x1: 0, y1: 0, x2: 0, y2: 7, stroke: '#fff', 'stroke-opacity': 0.14, 'stroke-width': 3 }, hatch);
     const shadow = svg('filter', { id: 'lift', x: '-50%', y: '-50%', width: '200%', height: '200%' }, defs);
     svg('feDropShadow', { dx: 0, dy: 1.5, stdDeviation: 1.5, 'flood-color': '#000', 'flood-opacity': 0.45 }, shadow);
+    svg('circle', { r: 16.4 }, svg('clipPath', { id: 'unit-clip' }, defs)); // inside a unit picture's ring
 
     const tiles = svg('g', {}, root);
     svg('g', { id: 'ov-under', 'pointer-events': 'none' }, root);
@@ -316,7 +319,7 @@
     const inBuild = !!buildKind(st);
     // Zones only matter while building, so only then do empty zone hexes take the player's tint.
     const groundFill = (hex) => (inBuild && hex.terrain === 'plain' && hex.zone !== null ? P(hex.zone).tint : tileLook(hex).color);
-    const mapView = ui.settings.view === 'map';
+    const mapView = ui.settings.mapStyle === 'graphic';
     if (mapView) {
       window.NP_MAPVIEW.draw(tiles, st, { size: SIZE, pos, look: tileLook, fill: groundFill, color: (p) => P(p).color });
     }
@@ -354,7 +357,7 @@
     renderOverlay();
   }
 
-  // "Tiles" view: one flat hexagon per tile with a big terrain symbol.
+  // Symbols map: one flat hexagon per tile with a big terrain symbol.
   function drawTile(k, hex, t, x, y, look, fill, tiles) {
     svg('polygon', { points: points(k, SIZE - 1), fill, class: 'tile' }, tiles);
     if (TEXTURE[hex.terrain]) svg('polygon', { points: points(k, SIZE - 1), fill: `url(#${TEXTURE[hex.terrain]})` }, tiles);
@@ -376,11 +379,20 @@
       svg('circle', { cx, cy, r: r + 4, class: 'sel-ring-outer' }, g);
       svg('circle', { cx, cy, r: r + 4, class: 'sel-ring' }, g);
     }
-    svg('circle', {
-      cx, cy, r, fill: P(u.player).color, stroke: '#fff', 'stroke-width': 2, filter: 'url(#lift)',
-      'stroke-dasharray': R.logic.hasSkill(u.type, 'insurgency') ? '4 3' : null,
-    }, g);
-    if (!drawIcon('units', u.type, cx, cy, r * 1.15, '#fff', g, { width: 2.6 })) svgText(def.short, cx, cy + 5, 'ulabel', g);
+    const dashed = R.logic.hasSkill(u.type, 'insurgency');
+    if (ui.settings.unitStyle === 'graphic' && window.NP_UNIT_ART && window.NP_UNIT_ART.has(u.type)) {
+      // Graphic units: an illustrated token (unitart.js, drawn at radius 18) inside a ring in the player's colour.
+      const tg = svg('g', { transform: `translate(${cx},${cy}) scale(${r / 18})` }, g);
+      svg('circle', { r: 18, fill: P(u.player).tint, filter: 'url(#lift)' }, tg);
+      window.NP_UNIT_ART.draw(u.type, svg('g', { 'clip-path': 'url(#unit-clip)' }, tg), P(u.player).color);
+      svg('circle', { r: 17, fill: 'none', stroke: P(u.player).color, 'stroke-width': 2.4, 'stroke-dasharray': dashed ? '4 2.4' : null }, tg);
+    } else {
+      svg('circle', {
+        cx, cy, r, fill: P(u.player).color, stroke: '#fff', 'stroke-width': 2, filter: 'url(#lift)',
+        'stroke-dasharray': dashed ? '4 3' : null,
+      }, g);
+      if (!drawIcon('units', u.type, cx, cy, r * 1.15, '#fff', g, { width: 2.6 })) svgText(def.short, cx, cy + 5, 'ulabel', g);
+    }
 
     // ⚔ atk  🛡 def under the counter; green/red when terrain changes the number.
     const sy = cy + r + 11;
@@ -668,6 +680,13 @@
       threat);
   }
 
+  // A Symbols / Graphic picker for one of the drawing styles, remembered in the browser.
+  function styleSelect(label, key, storeKey) {
+    return h('label', { class: 'setting' }, `${label} `,
+      h('select', { onchange: (e) => { ui.settings[key] = e.target.value; store.set(storeKey, e.target.value); render(); } },
+        [['symbols', 'Symbols'], ['graphic', 'Graphic']].map(([id, name]) => h('option', { value: id, selected: id === ui.settings[key] }, name))));
+  }
+
   function controlsCard() {
     const toggle = (key, label) => h('label', { class: 'toggle' },
       h('input', { type: 'checkbox', checked: ui.settings[key], onchange: (e) => { ui.settings[key] = e.target.checked; render(); } }),
@@ -680,9 +699,7 @@
         toggle('autoEnd', 'Auto-end turn when nothing is left to do'),
         toggle('threats', 'Show attack arrows on every enemy you can capture'),
         toggle('coords', 'Show hex coordinates')),
-      h('label', { class: 'setting' }, 'View ',
-        h('select', { onchange: (e) => { ui.settings.view = e.target.value; store.set('view', e.target.value); render(); } },
-          [['tiles', 'Tiles'], ['map', 'Map']].map(([id, name]) => h('option', { value: id, selected: id === ui.settings.view }, name)))));
+      h('div', { class: 'settings' }, styleSelect('Map', 'mapStyle', 'map-style'), styleSelect('Units', 'unitStyle', 'unit-style')));
   }
 
   function armiesCard(st) {

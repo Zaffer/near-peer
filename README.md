@@ -20,6 +20,7 @@ The rules are in [RULES.md](RULES.md). Ideas and past rule decisions are tracked
 | `js/ui.js` | SVG board and side panel. It only ever asks the engine what's legal. |
 | `js/hex.js` | Hex grid maths. |
 | `js/colours.js` | Terrain colours. Purely visual. |
-| `js/mapview.js` | The optional "Map" view: blended terrain, joined-up roads, river between the zones. Purely visual. |
+| `js/mapview.js` | The "Graphic" map style: blended terrain, joined-up roads, river between the zones. Purely visual. |
+| `js/unitart.js` | The "Graphic" unit style: illustrated tokens (infantry, tank, rocket artillery, spy, general). Purely visual. |
 | `js/icons.js` | One SVG icon per unit and terrain type, using the same type ids as `rules.js`. |
 | `tests/rules.test.js` | One test per rule. Update the matching test when you change a rule on purpose. |
