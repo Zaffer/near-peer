@@ -39,12 +39,15 @@ Newest first.
   map and unit pictures. Any mix works, and both start on Graphic. The choice is remembered in the browser.
 - **Why:** Mix and match, e.g. the illustrated map with the clearer unit symbols.
 
-### 2026-10-16 — Illustrated unit tokens in the Map view
-- **What:** In the Map view, units are small pictures in the map's style (`js/unitart.js`): Light = infantry
-  (modern helmet, plate carrier, assault rifle), Armour = main battle tank, Ranged = rocket artillery truck,
-  Covert = spy (fedora, dark glasses, trench coat), Hero = general with a sabre. Uniforms and vehicles take the
-  player's colour, on a pale team-tinted disc with a ring in the team colour (dashed for the Covert, as before).
-  The Tiles view keeps the plain symbols.
+### 2026-10-16 — Illustrated unit tokens
+- **What:** With the Graphic unit style, units are small pictures in the map's style (`js/unitart.js`):
+  Light = infantry (modern helmet, plate carrier, assault rifle), Armour = main battle tank,
+  Ranged = truck-mounted howitzer, Covert = special forces operator (balaclava, night vision down),
+  Hero = general with a sabre. One part of each sticks out past the token's ring: the rifle barrel, the tank gun,
+  the howitzer barrel, the operator's radio antenna, the sabre. Uniforms and vehicles take the player's colour,
+  on a pale team-tinted disc with a ring in the team colour (dashed for the Covert, as before).
+  Chosen from options: the Covert over a contractor and a raider (and earlier a spy, ghillie sniper and paratrooper);
+  the Ranged over a towed howitzer and a rocket truck.
 - **Why:** Match the units to the illustrated map. Unit names and rules are unchanged.
 
 ### 2026-10-16 — One colour set; tidier board

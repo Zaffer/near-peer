@@ -384,8 +384,9 @@
       // Graphic units: an illustrated token (unitart.js, drawn at radius 18) inside a ring in the player's colour.
       const tg = svg('g', { transform: `translate(${cx},${cy}) scale(${r / 18})` }, g);
       svg('circle', { r: 18, fill: P(u.player).tint, filter: 'url(#lift)' }, tg);
-      window.NP_UNIT_ART.draw(u.type, svg('g', { 'clip-path': 'url(#unit-clip)' }, tg), P(u.player).color);
+      const art = svg('g', { 'clip-path': 'url(#unit-clip)' }, tg);
       svg('circle', { r: 17, fill: 'none', stroke: P(u.player).color, 'stroke-width': 2.4, 'stroke-dasharray': dashed ? '4 2.4' : null }, tg);
+      window.NP_UNIT_ART.draw(u.type, art, svg('g', {}, tg), P(u.player).color); // second layer: the part that sticks out
     } else {
       svg('circle', {
         cx, cy, r, fill: P(u.player).color, stroke: '#fff', 'stroke-width': 2, filter: 'url(#lift)',
