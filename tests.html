@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Near Peer — rule tests</title>
+  <style>
+    body { font: 14px system-ui, sans-serif; margin: 24px; background: #f6f3ec; }
+    .pass { color: #15803d; }
+    .fail { color: #b91c1c; font-weight: 700; }
+    li { margin: 2px 0; }
+  </style>
+</head>
+<body>
+  <h1>Near Peer — rule tests</h1>
+  <div id="summary"></div>
+  <ul id="results"></ul>
+
+  <script src="js/rules.js"></script>
+  <script src="js/hex.js"></script>
+  <script src="js/engine.js"></script>
+  <script src="tests/rules.test.js"></script>
+  <script>
+    const results = window.NP_TEST_RESULTS;
+    const failed = results.filter((r) => !r.ok);
+    document.getElementById('summary').innerHTML =
+      `<p class="${failed.length ? 'fail' : 'pass'}">${results.length - failed.length}/${results.length} passed</p>`;
+    document.getElementById('results').innerHTML = results.map((r) =>
+      `<li class="${r.ok ? 'pass' : 'fail'}">${r.ok ? '✓' : '✗'} ${r.name}${r.ok ? '' : ` — ${r.err}`}</li>`).join('');
+  </script>
+</body>
+</html>
