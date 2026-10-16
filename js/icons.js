@@ -10,8 +10,8 @@
     units: {
       // double chevron: speed
       light: 'M6 12l6-6 6 6 M6 19l6-6 6 6',
-      // helmet (the shield is reserved for the defence stat)
-      armour: 'M4 20v-7a8 8 0 0 1 16 0v7h-5v-5H9v5z M12 5v4',
+      // NATO armour symbol: an oval, like a tank's track loop
+      armour: 'M7 7h10a5 5 0 0 1 0 10H7A5 5 0 0 1 7 7z',
       // crosshair
       ranged: 'M19 12a7 7 0 1 1-14 0a7 7 0 1 1 14 0 M12 2v6 M12 16v6 M2 12h6 M16 12h6',
       // eye

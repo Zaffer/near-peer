@@ -21,7 +21,7 @@ How the rules got to where they are, and the changes still to consider.
 | A3 | **Blind build phase (fog of war).** Both players place terrain and units at the same time without seeing each other's side, rather than taking turns. | description.md | — | Needs a hidden or simultaneous placement step and a "reveal" moment. |
 | A4 | **Capturing ends the move.** Defeating a unit ends the capturing unit's move. | Play discussion, 2026-10-15 | `captureEndsMove` | Currently off: the capturing unit can keep moving and still gets road bonuses. |
 | A5 | **Only coverts can share hexes and block.** Normal units can't move onto another unit's hex at all, so a covert sitting alone also blocks normal units. | Play discussion, 2026-10-15 | `normalUnitsCanJoinOccupiedHex: false` | Currently a normal unit may move onto a lone covert. |
-| A6 | **Move → attack → keep moving.** Let a unit stop partway through its move (e.g. on a road), attack, then finish the move. | Play discussion, 2026-10-16 | `attackEndsMoveInProgress: false` | Currently attacking ends any move in progress. If adopted, add a test for the road case. |
+| A7 | **Limit captures per turn** (e.g. one). | Play discussion, 2026-10-16 | — | Currently unlimited ("wild west"): one move can capture as many units as it can reach and beat. Revisit if chain captures swing games too hard. A4 (`captureEndsMove`) is the blunter version. |
 
 ## Not rules, but later
 - Polish pass on the interface.
@@ -32,6 +32,39 @@ How the rules got to where they are, and the changes still to consider.
 ## Decision log
 
 Newest first.
+
+### 2026-10-16 — Bold terrain colours; towns remember who placed them (colour only)
+- **What:** Plain white, minefield black, road grey, fortification dark grey. Capitals and towns take their
+  placer's colour: Blue pink capital / purple town, Red orange capital / yellow town. Tiles show just a big
+  symbol (no name or modifiers; those are in the hover bar). The "total vs defence" tag over attacked units is gone.
+- **Why:** Tighter, bolder board to play with first; finesse later.
+- **Update (same day):** Colours moved out of `rules.js` into switchable schemes in `js/palettes.js`
+  ("Bold, by player" is the scheme above). Every tile records `placedBy` for schemes that colour by player.
+  The rules ignore it; only a capital has an `owner`. Units now sit centred on their hex.
+
+### 2026-10-16 — Attack becomes passive: combined attack on capture
+- **What:** The attack action is gone, along with "one attack per turn" and the *vulnerable* state. A turn is now
+  just one unit's move. Stepping onto an enemy captures it when the attack of **all** your units in range of it
+  adds up to at least its defence. The unit stepping in counts from the hex it steps in from.
+  Any number of captures per move (see A7). If you could also share the hex, you may walk in beside the enemy instead.
+  In-place capture (a unit already on the enemy's hex) stays, now using the combined attack.
+  The UI shows curved arrows from every contributing unit and "total vs defence"; capturable enemies get a dashed ring.
+- **Why:** Found in play. A Hero on its own capital has defence 4, which only a Ranged or Hero standing on a +1 tile could
+  ever hit, so a Hero could sit there forever. Combining attacks lets Light + Armour + Covert (2 + 1 + 1) beat it.
+  Also, under the old rules an attack did nothing unless you captured that same turn, so attacking was a step to tick
+  off rather than a decision. The real choice is which unit moves and where.
+- **Removed:** the `attackEndsMoveInProgress` switch, and idea A6 (move → attack → keep moving), which no longer applies.
+- **Choices made:** the mover counts from the hex it steps in from (so a Light can walk up and capture), and captures
+  are unlimited for now (simplest rules first; balance later). Both agreed in discussion.
+- **Stacked hexes:** you capture every enemy there that you beat, then must fit beside whoever's left. So a Light
+  can't get at a Covert sharing with a Hero it can't beat. As you described: beat the Hero, and the Covert goes too.
+
+### 2026-10-16 — Insurgency takes an occupied capital
+- **What:** A Covert (Insurgency) on the enemy capital wins even if an enemy unit is on it. Other units still need
+  the capital clear of enemies.
+- **Why:** A second route to victory that doesn't depend on out-fighting a Hero on its capital, and it makes the
+  Covert worth protecting. Counter-play: fill the capital with two units (e.g. Hero + Covert) so a Covert can't
+  slip in without capturing one.
 
 ### 2026-10-16 — Starting on a road no longer gives +1 movement
 - **What:** Roads only reward *landing* on them. Starting your turn on a road gives nothing extra.
@@ -58,6 +91,7 @@ Newest first.
   sharing that minefield couldn't defeat it. The rule only covered *moving onto* a unit, and the Covert had
   0 movement anyway. Making it cost the move keeps it from being a free extra action.
 - **Status:** My call to unblock play. Confirm, or pick another cost (e.g. free, or the unit must have movement left).
+  Kept under the passive-attack rules (above): no prior attack needed now, just a combined attack that beats it.
 
 ### 2026-10-16 — Fortress renamed to Fortification
 - **What:** The terrain is now called *Fortification*, with a sandbag icon. Same effect: +1 defence.
@@ -78,12 +112,12 @@ These came from clarifying the original description before building.
 | Starting on terrain | Starting movement = base + the terrain's modifier. A road start gives +1. A minefield start gives −1, so an Armour on a minefield can't move. *(Road part reversed 2026-10-16.)* | Treats roads and minefields the same way. |
 | Minefield on entry | Entering a minefield takes 1 movement away immediately. | From the description: a Light stepping onto a minefield forfeits its second move. |
 | Terrain bonuses | Apply to any unit on the tile, from either side. | Confirmed in discussion. |
-| Turn structure | One attack and one move per turn, in either order. The move is one unit's continuous path. | Confirmed in discussion. See A6 for a possible change. |
+| Turn structure | One attack and one move per turn, in either order. The move is one unit's continuous path. *(Replaced 2026-10-16 by passive combined attack.)* | Confirmed in discussion. |
 | Capturing | Doesn't end the capturing unit's move. | Confirmed in discussion. See A4. |
 | Blocking | All units block normal units, including your own. Coverts can pass through. | Confirmed in discussion. |
 | Stacking | A hex holds at most 2 units, and at most one of them can be a normal unit. Two coverts can share. A normal unit may move onto a lone covert. | Confirmed in discussion. The normal-onto-covert part is a prototype rule (see A5). |
-| Same-hex attacks | Units sharing a hex can attack each other (distance 0). Switch: `allowSameHexAttack`. | Confirmed in discussion. |
+| Same-hex attacks | Units sharing a hex can attack each other (distance 0). Switch: `allowSameHexAttack`. *(Now: a unit on the enemy's hex adds to the combined attack.)* | Confirmed in discussion. |
 | Range | "Range 2" means up to 2 hexes, adjacent included, with no line of sight. | Confirmed in discussion. See A2. |
-| Capital win | Your unit is on the enemy capital and no enemy unit is there. An enemy covert sharing it blocks the win; your own covert doesn't. The win is instant, even when only passing through. | You said a covert sharing the capital doesn't count. Your own covert alongside was my call, since the capital is clearly yours. See A1. |
+| Capital win | Your unit is on the enemy capital and no enemy unit is there. An enemy covert sharing it blocks the win; your own covert doesn't. The win is instant, even when only passing through. *(2026-10-16: a Covert now wins even with an enemy there.)* | You said a covert sharing the capital doesn't count. Your own covert alongside was my call, since the capital is clearly yours. See A1. |
 | Elimination win | Defeating every enemy unit also wins. | Confirmed in discussion. |
-| Build order | The Challenger places first. Players alternate one tile at a time, then one unit at a time. The Challenged player also gets the centre hex. | From the description, confirmed in discussion. |
+| Build order | Blue places first. Players alternate one tile at a time, then one unit at a time. Red also gets the centre hex. | From the description, confirmed in discussion. |

@@ -1,14 +1,14 @@
-# Near Peer — rules (prototype v0.1)
+# Near Peer — rules (prototype v0.2)
 
 The agreed rules as implemented. Numbers and switches live in [js/rules.js](js/rules.js);
 [tests.html](tests.html) checks each rule below.
 
 ## Board and setup
 - 19-hex board, 3 hexes per side (Catan layout), rows of 3/4/5/4/3.
-- **Challenger** (blue, bottom) goes first. **Challenged** (red, top) goes second.
+- **Blue** (bottom) goes first. **Red** (top) goes second.
 - Zones: your back row (3) + next row (4) + the two middle-row hexes on your right (9 hexes).
-  The Challenged player also gets the centre hex (10 hexes).
-- **Build phase:** players alternate, Challenger first, placing one terrain tile at a time
+  Red also gets the centre hex (10 hexes).
+- **Build phase:** players alternate, Blue first, placing one terrain tile at a time
   (one each of capital, town, road, fortification, minefield) anywhere in their own zone.
   Zone hexes left over are plain. Then the players alternate placing their 5 units in the same way.
 
@@ -23,19 +23,20 @@ The agreed rules as implemented. Numbers and switches live in [js/rules.js](js/r
 
 ### Skills
 - **Insurgency** (Covert): dual occupancy. The unit can share a hex with one other unit,
-  friend or enemy, and can pass through occupied hexes.
+  friend or enemy, and can pass through occupied hexes. It also **takes the enemy capital even with an
+  enemy unit on it** (see Winning).
 
 ## Terrain
 A terrain tile's modifier applies to **any** unit standing on it, from either side.
 Once placed, terrain belongs to no one, except each capital, which stays its player's (that's what you win by taking).
+Colours are cosmetic and switchable (see `js/palettes.js`).
 - Capital: +1 atk, +1 def. Town: +1 atk. Fortification: +1 def.
 - Road: +1 movement. Minefield: −1 movement.
 
 ## Turns
-- Each turn, take up to **one attack** and **one move**, in either order. The same unit or different units can do them.
-- A move is a single unit's continuous path. Attacking while a unit is mid-move ends that move,
-  so there is no move → attack → move.
-- You can skip either action. The turn ends automatically once nothing legal is left (this is a UI toggle).
+- Each turn, **move one unit**: a single continuous path. There is no separate attack action
+  (see *Attack and capturing*). Captures happen during the move.
+- You can pass. The turn ends automatically once the move is spent (this is a UI toggle).
 
 ## Movement
 - Each step goes to an adjacent hex.
@@ -65,7 +66,6 @@ Once placed, terrain belongs to no one, except each capital, which stays its pla
 | 14 | Armour road → road → back onto the first road | 3 (each road pays once) |
 
 Every row is checked by a test in `tests/rules.test.js` ("ex 1" … "ex 14").
-- Only one unit may move per turn.
 
 ## Stacking
 - A hex normally holds one unit. With an **Insurgency** unit on it, it holds two. In practice that means:
@@ -75,20 +75,43 @@ Every row is checked by a test in `tests/rules.test.js` ("ex 1" … "ex 14").
 - Prototype rule: a normal unit may also move onto a hex holding a lone covert.
 - Normal units are blocked by any unit that isn't sharable, including your own.
 
-## Attacking and defeating units
-- Pick an enemy within your range. Distance is counted in hexes and needs no line of sight.
-  Range 2 includes adjacent hexes, and units sharing a hex are at distance 0.
-- If your attack is **≥** the target's defence (both including terrain), the target becomes **vulnerable**.
-- Moving a unit onto a vulnerable enemy defeats it. That does **not** end the capturing unit's move,
-  so it can keep going and does get road bonuses.
-- **Already on its hex?** A unit sharing a hex with a vulnerable enemy (e.g. a covert) can defeat it where it stands.
+## Attack and capturing
+Attack is passive. Every one of your units is always "attacking" every enemy within its range.
+- **Combined attack** on an enemy = the attack of all your units within range of it, added together
+  (terrain included). Distance is counted in hexes and needs no line of sight. Range 2 includes adjacent
+  hexes, and a unit on the same hex as the enemy is at distance 0, so it counts too.
+- **Capturing:** step onto an enemy whose defence (terrain included) is **≤** your combined attack and it is
+  captured. The unit stepping in counts from the hex it steps in from, so it can walk up and capture in one move.
+  Terrain bonuses count where each unit is standing at that moment: leave a town and you lose its +1.
+- A dashed magenta ring marks every enemy you can capture right now.
+- **Several units on the hex:** stepping in captures every enemy there that you beat. Then you must fit on the hex
+  with whoever is left (see Stacking). A Light facing Hero + Covert must beat the Hero; beating only the Covert
+  isn't enough to get in. Beat both and both are captured.
+- **No limit per turn.** Capturing doesn't end the move, so a unit can keep going (with road bonuses) and capture
+  again. Four in one turn is possible against a bad enough layout.
+- **Walking in beside instead:** if you could also share the hex, you can choose not to capture
+  (e.g. a covert slipping in beside an enemy).
+- **Already on its hex?** A unit sharing a hex with an enemy it beats (e.g. a covert) can capture it where it stands.
   That counts as the unit's move for the turn. It works even with 0 movement (e.g. on a minefield),
-  and the unit can still spend any movement it has left afterwards.
-- Vulnerability wears off at the end of the turn.
+  and the unit can spend any movement it has left afterwards.
+
+| # | Situation | Combined attack | Result |
+|---|-----------|-----------------|--------|
+| 1 | Hero on its capital (def 3 + 1 = 4). Your Light, Armour and Covert are next to it | 2 + 1 + 1 = 4 | Any of the three steps on: Hero captured, and you're on the capital, so you win |
+| 2 | Same, but your Covert is gone | 2 + 1 = 3 | Can't capture. Bring the Ranged (3) within 2, or a unit on a town |
+| 3 | Light on a town next to an Armour (def 3) | 2 + 1 = 3 | Captured |
+| 4 | Light steps off the town, then onto the Armour | 2 | Blocked: the town bonus stayed behind |
+| 5 | Light 2 hexes from a lone Covert (def 1) | 2 | Walks up and captures it in one move |
+| 6 | Hero + Covert share a hex; only your Light (2) reaches it | 2 vs Hero 3, Covert 1 | Blocked: the Hero still fills the hex |
+| 7 | Same, but your Hero is also adjacent | 2 + 3 = 5 | Both captured |
+| 8 | Ranged 3 hexes from an enemy | — | Out of range: adds nothing |
 
 ## Winning
 - **Capital:** a unit of yours is on the enemy capital and no enemy unit is on it.
-  A covert sharing the capital blocks the win. It triggers the moment you step there, even while passing through.
+  An enemy covert sharing the capital blocks the win (capture it instead and you win).
+  It triggers the moment you step there, even while passing through.
+- **Insurgency takes it anyway:** your Covert on the enemy capital wins even if an enemy unit is there.
+  The defence: fill the capital (e.g. Hero + Covert, 2 units) so an enemy Covert can't step in without capturing one.
 - **Elimination:** defeat every enemy unit.
 
 ## Changes and ideas

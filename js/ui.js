@@ -11,8 +11,13 @@
   const E = window.NP_ENGINE;
   const SIZE = 54;
   const NS = 'http://www.w3.org/2000/svg';
-  const DANGER = '#c026d3'; // "this makes / is vulnerable" — kept apart from the players' red and blue
+  const DANGER = '#c026d3'; // "this can be captured" — kept apart from the players' red and blue
   const TEXTURE = { minefield: 'hatch' };
+  const PALETTES = window.NP_PALETTES;
+  const store = {
+    get(k) { try { return localStorage.getItem(`near-peer:${k}`); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(`near-peer:${k}`, v); } catch (e) { /* private window etc. */ } },
+  };
 
   const ui = {
     state: null,
@@ -22,7 +27,7 @@
     choice: null, // terrain/unit type picked during the build phase
     unitXY: {},
     rulesOpen: false,
-    settings: { autoEnd: true, hitLines: false, coords: false },
+    settings: { autoEnd: true, threats: false, coords: false, palette: PALETTES[store.get('palette')] ? store.get('palette') : Object.keys(PALETTES)[0] },
   };
 
   // ---------------------------------------------------------------- helpers
@@ -101,7 +106,15 @@
     const u = id && ui.state.units[id];
     return u && !u.dead ? u : null;
   };
+  // Fill and symbol colour of a hex in the chosen colour scheme.
+  const tileLook = (hex) => {
+    const look = PALETTES[ui.settings.palette].terrain[hex.terrain];
+    return (look.byPlacer && hex.placedBy !== null && look.byPlacer[hex.placedBy]) || look;
+  };
   const chip = (p) => h('span', { class: 'chip', style: `background:${P(p).color}` });
+  // An enemy of the player to move that their combined attack beats right now.
+  const capturable = (st, u) => st.phase === 'battle' && u.player !== st.current && E.assault(st, u.id).beats;
+  const unitName = (st, id) => R.units[st.units[id].type].name;
 
   function toast(msg) {
     const t = $('toast');
@@ -197,27 +210,23 @@
     const mine = sel && st.phase === 'battle' && sel.player === st.current ? sel : null;
     const items = [];
     if (mine) {
-      for (const t of here.filter((u) => u.player !== mine.player)) {
-        const a = { type: 'attack', attackerId: mine.id, targetId: t.id };
-        if (!E.isLegal(st, a)) continue;
-        const pv = E.attackPreview(st, mine.id, t.id);
-        items.push({
-          label: `Attack ${R.units[t.type].name}: ${pv.attack} vs ${pv.defence} → ${pv.hit ? 'vulnerable' : 'no effect'}`,
-          run: () => commit(a),
-        });
-      }
       if (k === mine.hex) {
         for (const id of E.captureTargets(st, mine.id)) {
-          items.push({ label: `Defeat ${R.units[st.units[id].type].name} here (uses your move)`, run: () => commit({ type: 'capture', unitId: mine.id, targetId: id }) });
+          items.push({ label: `Capture ${unitName(st, id)} here (uses your move)`, run: () => commit({ type: 'capture', unitId: mine.id, targetId: id }) });
         }
       }
       const step = { type: 'step', unitId: mine.id, to: k };
-      if (E.isLegal(st, step)) {
-        const caps = here.filter((u) => u.player !== mine.player && st.vulnerable.includes(u.id));
+      const next = E.tryApply(st, step);
+      if (next) {
+        const caps = here.filter((u) => u.player !== mine.player && next.units[u.id].dead);
         items.push({
-          label: caps.length ? `Move here and defeat ${caps.map((c) => R.units[c.type].name).join(', ')}` : 'Move here',
+          label: caps.length ? `Move here and capture ${caps.map((c) => R.units[c.type].name).join(' + ')}` : 'Move here',
           run: () => commit(step),
         });
+        const beside = Object.assign({}, step, { capture: false });
+        if (caps.length && E.isLegal(st, beside)) {
+          items.push({ label: `Move in beside ${caps.map((c) => R.units[c.type].name).join(' + ')} (no capture)`, run: () => commit(beside) });
+        }
       }
     }
 
@@ -271,8 +280,6 @@
       undo();
     } else if (e.key === 'e' && ui.state.phase === 'battle') {
       commit({ type: 'endTurn' });
-    } else if (e.key === 'm' && ui.state.phase === 'battle') {
-      commit({ type: 'endMove' });
     }
   });
 
@@ -297,9 +304,8 @@
     };
     marker('arrow-hit', DANGER);
     marker('arrow-miss', '#6b7280');
-    R.players.forEach((p, i) => marker(`arrow-p${i}`, p.color));
     const hatch = svg('pattern', { id: 'hatch', width: 7, height: 7, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' }, defs);
-    svg('line', { x1: 0, y1: 0, x2: 0, y2: 7, stroke: '#000', 'stroke-opacity': 0.18, 'stroke-width': 3 }, hatch);
+    svg('line', { x1: 0, y1: 0, x2: 0, y2: 7, stroke: '#fff', 'stroke-opacity': 0.14, 'stroke-width': 3 }, hatch);
     const shadow = svg('filter', { id: 'lift', x: '-50%', y: '-50%', width: '200%', height: '200%' }, defs);
     svg('feDropShadow', { dx: 0, dy: 1.5, stdDeviation: 1.5, 'flood-color': '#000', 'flood-opacity': 0.45 }, shadow);
 
@@ -316,29 +322,15 @@
       const { x, y } = pos(k);
       // Zones only matter while building, so only then do empty zone hexes take the player's tint.
       const zoneTint = inBuild && hex.terrain === 'plain' && hex.zone !== null;
-      svg('polygon', { points: points(k, SIZE - 1), fill: zoneTint ? P(hex.zone).tint : t.color, class: 'tile' }, tiles);
+      const look = tileLook(hex);
+      svg('polygon', { points: points(k, SIZE - 1), fill: zoneTint ? P(hex.zone).tint : look.color, class: 'tile' }, tiles);
       if (TEXTURE[hex.terrain]) svg('polygon', { points: points(k, SIZE - 1), fill: `url(#${TEXTURE[hex.terrain]})` }, tiles);
       const capitalOwner = t.capital && hex.owner !== null ? hex.owner : null;
       if (capitalOwner !== null) {
         svg('polygon', { points: points(k, SIZE - 5), fill: 'none', stroke: P(capitalOwner).color, 'stroke-width': 4 }, tiles);
       }
-      if (hex.terrain !== 'plain') {
-        const ink = t.ink || '#333';
-        const iconInk = capitalOwner !== null ? P(capitalOwner).color : ink;
-        // Big faded watermark when the hex is empty, plus a small icon beside the name.
-        if (!E.unitsAt(st, k).length) drawIcon('terrain', hex.terrain, x, y + 10, 34, ink, tiles, { opacity: 0.28 });
-        const ty = y - SIZE * 0.52;
-        const label = svgText(t.name, x + 8, ty, 'tlabel', tiles);
-        label.style.fill = ink;
-        let w = label.getComputedTextLength();
-        const room = SIZE * 1.3 - 14; // hex width at label height, minus the icon
-        if (w > room) {
-          label.style.fontSize = `${(11 * room) / w}px`;
-          w = label.getComputedTextLength();
-        }
-        if (!drawIcon('terrain', hex.terrain, x + 8 - w / 2 - 11, ty - 4, 13, iconInk, tiles, { width: 2.6 })) label.setAttribute('x', x);
-        drawModsRow(t.mods, x, ty + 11.5, ink, tiles);
-      }
+      // Just a big symbol; names and modifiers are in the hover bar and rules reference.
+      if (hex.terrain !== 'plain') drawIcon('terrain', hex.terrain, x, y, SIZE * 1.4, look.ink, tiles, { opacity: 0.45, width: 1.3 });
       if (ui.settings.coords) svgText(k, x, y + SIZE * 0.78, 'coord', tiles);
 
       const hit = svg('polygon', { points: points(k, SIZE), class: 'hit' }, hits);
@@ -362,7 +354,7 @@
       const r = occ.length > 1 ? 15 : 18;
       occ.forEach((u, i) => {
         const ux = occ.length > 1 ? x + (i ? 19 : -19) : x;
-        const uy = y + 10;
+        const uy = y;
         ui.unitXY[u.id] = { x: ux, y: uy, r };
         drawUnit(u, ux, uy, r, unitsLayer);
       });
@@ -371,28 +363,12 @@
     renderOverlay();
   }
 
-  // "+1⚔ +1🛡" centred under a terrain name.
-  function drawModsRow(mods, cx, y, color, parent) {
-    const g = svg('g', {}, parent);
-    const size = 9.5;
-    let cursor = 0;
-    for (const [k, v] of Object.entries(mods)) {
-      const t = svgText(signed(v), cursor, y, 'tmods', g);
-      t.style.fill = color;
-      t.style.textAnchor = 'start';
-      cursor += t.getComputedTextLength() + 0.5;
-      drawIcon('stats', k, cursor + size / 2, y - 3.3, size, color, g, { width: 2.6 });
-      cursor += size + 5;
-    }
-    g.setAttribute('transform', `translate(${cx - (cursor - 5) / 2},0)`);
-  }
-
   function drawUnit(u, cx, cy, r, parent) {
     const st = ui.state;
     const def = R.units[u.type];
     const sts = E.stats(st, u.id);
     const g = svg('g', {}, parent);
-    if (st.vulnerable.includes(u.id)) svg('circle', { cx, cy, r: r + 6, class: 'vuln-ring' }, g);
+    if (capturable(st, u)) svg('circle', { cx, cy, r: r + 6, class: 'capt-ring' }, g);
     if (ui.selected === u.id) {
       svg('circle', { cx, cy, r: r + 4, class: 'sel-ring-outer' }, g);
       svg('circle', { cx, cy, r: r + 4, class: 'sel-ring' }, g);
@@ -439,20 +415,24 @@
     }
 
     if (st.phase === 'battle' || st.phase === 'over') {
-      if (ui.settings.hitLines) drawAllHitLines(over);
       const sel = liveUnit(ui.selected);
-      const hov = ui.hover ? E.unitsAt(st, ui.hover).find((u) => u.id !== ui.selected) : null;
-      if (hov) drawUnitOverlay(hov, false, under, over);
-      if (sel) drawUnitOverlay(sel, true, under, over);
+      const hovered = ui.hover ? E.unitsAt(st, ui.hover) : [];
+      const hov = hovered.find((u) => u.id !== ui.selected);
+      if (hov) drawUnitOverlay(hov, false, under);
+      if (sel) drawUnitOverlay(sel, true, under);
       drawMovePath(over);
+      // Attack arrows onto the hovered units (or the selected one), plus every capturable enemy if switched on.
+      const targets = new Set((hovered.length ? hovered : sel ? [sel] : []).map((u) => u.id));
+      if (ui.settings.threats) E.unitsOf(st, 1 - st.current).filter((u) => capturable(st, u)).forEach((u) => targets.add(u.id));
+      drawAssaults([...targets], over);
     }
 
     if (ui.hover) svg('polygon', { points: points(ui.hover, SIZE - 2), class: 'hover-ring' }, over);
   }
 
   // Movement reach (light wash, outlined in the unit's colour), next legal steps
-  // (green dashed), attack range (dark dotted) and lines to every enemy in range.
-  function drawUnitOverlay(u, primary, under, over) {
+  // (green dashed) and attack range (dark dotted).
+  function drawUnitOverlay(u, primary, under) {
     const st = ui.state;
     const ts = st.turnState;
     const active = st.phase === 'battle' && u.player === st.current;
@@ -477,53 +457,55 @@
       svg('polygon', { points: points(k, SIZE * 0.8), class: primary ? 'range' : 'range preview' }, under);
     }
 
-    const canAttackNow = !active || !ts.attackUsed;
-    for (const t of E.unitsOf(st, 1 - u.player)) {
-      const pv = E.attackPreview(st, u.id, t.id);
-      if (!pv.inRange) continue;
-      drawAttackLine(u.id, t.id, pv, primary && canAttackNow ? 1 : 0.4, over);
-    }
   }
 
-  function linePoints(aId, bId) {
-    const a = ui.unitXY[aId];
-    const b = ui.unitXY[bId];
-    if (!a || !b) return null;
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const len = Math.hypot(dx, dy) || 1;
-    return {
-      x1: a.x + (dx / len) * (a.r + 2), y1: a.y + (dy / len) * (a.r + 2),
-      x2: b.x - (dx / len) * (b.r + 4), y2: b.y - (dy / len) * (b.r + 4),
-      mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2,
-    };
-  }
-
-  function drawAttackLine(aId, tId, pv, opacity, parent) {
-    const p = linePoints(aId, tId);
-    if (!p) return;
-    const g = svg('g', { opacity }, parent);
-    svg('line', {
-      x1: p.x1, y1: p.y1, x2: p.x2, y2: p.y2,
-      class: pv.hit ? 'atk-line hit' : 'atk-line miss',
-      'marker-end': `url(#${pv.hit ? 'arrow-hit' : 'arrow-miss'})`,
-    }, g);
-    svg('rect', { x: p.mx - 13, y: p.my - 8, width: 26, height: 15, rx: 4, class: pv.hit ? 'atk-tag hit' : 'atk-tag miss' }, g);
-    svgText(`${pv.attack}v${pv.defence}`, p.mx, p.my + 3.5, 'atk-tag-text', g);
-  }
-
-  function drawAllHitLines(parent) {
+  // Curved arrows from every unit adding to the attack on each target, each
+  // carrying that unit's attack (the target's defence is already under it).
+  // Arrows into one target from about the same direction bend alternate ways
+  // (+1, −1, +2, −2 …) so they never lie on top of each other.
+  function drawAssaults(targetIds, parent) {
     const st = ui.state;
-    for (const a of E.aliveUnits(st)) {
-      for (const t of E.unitsOf(st, 1 - a.player)) {
-        const pv = E.attackPreview(st, a.id, t.id);
-        if (!pv.inRange || !pv.hit) continue;
-        const p = linePoints(a.id, t.id);
-        if (!p) continue;
-        svg('line', {
-          x1: p.x1, y1: p.y1, x2: p.x2, y2: p.y2, stroke: P(a.player).color, class: 'threat-line',
-          'marker-end': `url(#arrow-p${a.player})`,
-        }, parent);
+    const toward = (a, b, d) => {
+      const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+      return { x: a.x + ((b.x - a.x) / len) * d, y: a.y + ((b.y - a.y) / len) * d };
+    };
+    for (const tId of targetIds) {
+      const t = ui.unitXY[tId];
+      const a = E.assault(st, tId);
+      if (!t || !a.contributors.length) continue;
+      const cls = a.beats ? 'hit' : 'miss';
+      const g = svg('g', {}, parent);
+      const arrows = a.contributors
+        .map((c) => ({ c, from: ui.unitXY[c.id] }))
+        .filter((x) => x.from)
+        .map((x) => Object.assign(x, { angle: Math.atan2(x.from.y - t.y, x.from.x - t.x) }))
+        .sort((p, q) => p.angle - q.angle);
+      let group = [];
+      const flush = () => {
+        group.forEach((x, i) => { x.bend = (i % 2 ? -1 : 1) * (1 + Math.floor(i / 2)); });
+        group = [];
+      };
+      for (const x of arrows) {
+        if (group.length && x.angle - group[group.length - 1].angle > 0.45) flush();
+        group.push(x);
+      }
+      flush();
+
+      const labels = [];
+      for (const x of arrows) {
+        const p0 = x.from;
+        const len = Math.hypot(t.x - p0.x, t.y - p0.y) || 1;
+        const k = x.bend * 0.3 * len; // control-point offset; the curve's apex sits half as far out
+        const c = { x: (p0.x + t.x) / 2 - ((t.y - p0.y) / len) * k, y: (p0.y + t.y) / 2 + ((t.x - p0.x) / len) * k };
+        const s0 = toward(p0, c, p0.r + 2);
+        const e0 = toward(t, c, t.r + 5);
+        svg('path', { d: `M${s0.x},${s0.y} Q${c.x},${c.y} ${e0.x},${e0.y}`, class: `atk-line ${cls}`, 'marker-end': `url(#arrow-${cls})` }, g);
+        labels.push({ at: { x: 0.25 * s0.x + 0.5 * c.x + 0.25 * e0.x, y: 0.25 * s0.y + 0.5 * c.y + 0.25 * e0.y }, c: x.c });
+      }
+      // Labels after the arrows so no line crosses a number.
+      for (const l of labels) {
+        svg('circle', { cx: l.at.x, cy: l.at.y, r: 7.5, fill: P(st.units[l.c.id].player).color, class: 'atk-bubble' }, g);
+        svgText(String(l.c.attack), l.at.x, l.at.y + 3.5, 'atk-bubble-text', g);
       }
     }
   }
@@ -531,7 +513,7 @@
   function drawMovePath(parent) {
     const mv = ui.state.turnState.move;
     if (!mv || mv.path.length < 2) return;
-    const pts = mv.path.map((k) => { const { x, y } = pos(k); return `${x},${y + 10}`; }).join(' ');
+    const pts = mv.path.map((k) => { const { x, y } = pos(k); return `${x},${y}`; }).join(' ');
     svg('polyline', { points: pts, class: 'move-path' }, parent);
   }
 
@@ -540,14 +522,14 @@
     const st = ui.state;
     const k = ui.hover;
     if (!k) {
-      box.replaceChildren(h('span', { class: 'muted' }, 'Hover a hex for details. Hover any unit to preview its reach and attacks.'));
+      box.replaceChildren(h('span', { class: 'muted' }, 'Hover a hex for details. Hover any unit to see its reach and the attack against it.'));
       return;
     }
     const hex = st.hexes[k];
     const t = R.terrain[hex.terrain];
     const parts = [
       h('strong', { class: 'with-icon' }, iconEl('terrain', hex.terrain), t.name),
-      hex.owner !== null ? h('span', {}, ' · ', chip(hex.owner), `${P(hex.owner).name}'s capital`) : null,
+      hex.owner !== null ? h('span', {}, ' · ', chip(hex.owner), `${P(hex.owner).name}'s ${t.name.toLowerCase()}`) : null,
       Object.keys(t.mods).length ? h('span', { class: 'mods' }, ' · ', modsEl(t.mods)) : null,
       hex.zone !== null && buildKind(st) ? h('span', { class: 'muted' }, ` · ${P(hex.zone).name} zone`) : null,
     ];
@@ -555,7 +537,7 @@
       const s = E.stats(st, u.id);
       parts.push(h('span', { class: 'hover-unit' }, ' · ', iconEl('units', u.type, P(u.player).color, 14),
         `${R.units[u.type].name} `, unitStatsEl(Object.fromEntries(STAT_ORDER.map((n) => [n, s[n].total]))),
-        st.vulnerable.includes(u.id) ? h('b', { class: 'vuln-text' }, ' VULNERABLE') : null));
+        capturable(st, u) ? h('b', { class: 'capt-text' }, ' CAPTURABLE') : null));
     }
     box.replaceChildren(...parts.filter(Boolean));
   }
@@ -624,21 +606,18 @@
     let move = 'ready';
     if (ts.moveDone) move = 'done';
     else if (ts.move) move = `${R.units[st.units[ts.move.unitId].type].name}: ${ts.move.remaining} left`;
-    const pill = (label, value, done) => h('span', { class: `pill${done ? ' done' : ''}` }, `${label}: ${value}`);
     return h('section', { class: 'card' },
       h('h2', {}, 'This turn'),
-      h('div', { class: 'pills' }, pill('Attack', ts.attackUsed ? 'used' : 'ready', ts.attackUsed), pill('Move', move, ts.moveDone)),
+      h('div', { class: 'pills' }, h('span', { class: `pill${ts.moveDone ? ' done' : ''}` }, `Move: ${move}`)),
       h('div', { class: 'row' },
-        h('button', { disabled: ts.attackUsed, onclick: () => commit({ type: 'skipAttack' }) }, 'Skip attack'),
-        h('button', { disabled: ts.moveDone, onclick: () => commit({ type: 'endMove' }) }, ts.move ? 'End move (M)' : 'Skip move (M)'),
-        h('button', { class: 'primary', onclick: () => commit({ type: 'endTurn' }) }, 'End turn (E)')),
-      h('p', { class: 'hint' }, 'Select a unit, then click a hex to move or an enemy to attack. ',
-        'Attack an enemy first so it becomes vulnerable, then move onto it to defeat it this turn.'));
+        h('button', { class: 'primary', onclick: () => commit({ type: 'endTurn' }) }, ts.move || ts.moveDone ? 'End turn (E)' : 'Pass (E)')),
+      h('p', { class: 'hint' }, 'Move one unit. Stepping onto an enemy captures it if the attack of all your units in range of it adds up to its defence. ',
+        'A dashed ring marks enemies you can capture. Hover any unit to see the attack against it.'));
   }
 
   function selectedCard(st) {
     const u = liveUnit(ui.selected);
-    if (!u) return h('section', { class: 'card muted' }, 'Click a unit to see its stats and attack options.');
+    if (!u) return h('section', { class: 'card muted' }, 'Click a unit to see its stats and the attack against it.');
     const def = R.units[u.type];
     const sts = E.stats(st, u.id);
     const terr = E.terrainAt(st, u.hex);
@@ -652,35 +631,28 @@
         name === 'movement' && moving ? h('span', { class: 'muted' }, ` (${ts.move.remaining} left)`) : null));
 
     const mine = st.phase === 'battle' && u.player === st.current;
-    const enemies = E.unitsOf(st, 1 - u.player)
-      .map((t) => ({ t, pv: E.attackPreview(st, u.id, t.id) }))
-      .filter((x) => x.pv.inRange);
-    let targets;
     const captures = mine ? E.captureTargets(st, u.id) : [];
     const captureBox = captures.length ? h('div', { class: 'targets' },
-      h('h3', {}, 'Vulnerable on this hex'),
+      h('h3', {}, 'Capturable on this hex'),
       captures.map((id) => h('div', { class: 'target' },
-        h('span', {}, `${R.units[st.units[id].type].name} `, h('b', { class: 'vuln-text' }, 'vulnerable')),
-        h('button', { class: 'primary', onclick: () => commit({ type: 'capture', unitId: u.id, targetId: id }) }, 'Defeat (uses move)')))) : null;
-    if (mine) {
-      targets = h('div', { class: 'targets' },
-        h('h3', {}, 'Enemies in range', ts.attackUsed ? h('span', { class: 'muted' }, ' · your attack is spent this turn') : null),
-        enemies.length ? enemies.map(({ t, pv }) => h('div', { class: 'target' },
-          h('span', {}, `${def.name} → ${R.units[t.type].name}: ${pv.attack} vs ${pv.defence} `,
-            h('b', { class: pv.hit ? 'vuln-text' : 'muted' }, pv.hit ? 'vulnerable' : 'no effect')),
-          ts.attackUsed ? null : h('button', { onclick: () => commit({ type: 'attack', attackerId: u.id, targetId: t.id }) }, 'Attack')))
-          : h('div', { class: 'muted' }, 'No enemies in range.'));
-    } else {
-      const threats = enemies.filter((x) => x.pv.hit);
-      targets = h('div', { class: 'targets' },
-        h('h3', {}, 'Could make vulnerable from here'),
-        threats.length ? threats.map(({ t, pv }) => h('div', {}, `${R.units[t.type].name}: ${pv.attack} vs ${pv.defence}`))
-          : h('div', { class: 'muted' }, 'Nothing in range.'));
-    }
+        h('span', {}, `${unitName(st, id)} `, h('b', { class: 'capt-text' }, `${E.assault(st, id).total} vs ${E.assault(st, id).defence}`)),
+        h('button', { class: 'primary', onclick: () => commit({ type: 'capture', unitId: u.id, targetId: id }) }, 'Capture (uses move)')))) : null;
+
+    const a = E.assault(st, u.id);
+    const foe = 1 - u.player;
+    const verdict = a.beats
+      ? h('b', { class: 'capt-text' }, foe === st.current ? 'capturable: step onto it' : `${P(foe).name} could capture it`)
+      : h('span', { class: 'muted' }, 'safe');
+    const threat = h('div', { class: 'targets' },
+      h('h3', {}, foe === st.current ? 'Your attack on it' : `${P(foe).name} attack on it`),
+      a.contributors.length
+        ? h('div', {}, a.contributors.flatMap((c, i) => [i ? ' + ' : '', `${unitName(st, c.id)} ${c.attack}`]),
+          ` = ${a.total} vs ${a.defence} defence · `, verdict)
+        : h('div', { class: 'muted' }, 'No enemy in range.'));
 
     return h('section', { class: 'card' },
       h('h2', {}, h('span', { class: 'mini', style: `background:${P(u.player).color}` }, iconEl('units', u.type, '#fff', 12)), unitLabel(u),
-        st.vulnerable.includes(u.id) ? h('span', { class: 'tag vuln' }, 'vulnerable') : null),
+        capturable(st, u) ? h('span', { class: 'tag capt' }, 'capturable') : null),
       h('div', { class: 'muted with-icon' }, iconEl('terrain', u.hex && st.hexes[u.hex].terrain), `On ${terr.name}`, Object.keys(terr.mods).length ? modsEl(terr.mods) : null),
       skillsEl(def),
       h('table', { class: 'stats' },
@@ -690,7 +662,7 @@
         row('movement', h('span', { class: 'with-icon' }, iconEl('stats', 'movement', 'currentColor', 14), 'Movement')),
         row('range', h('span', { class: 'with-icon' }, iconEl('stats', 'range', 'currentColor', 14), 'Range'))),
       captureBox,
-      targets);
+      threat);
   }
 
   function controlsCard() {
@@ -703,8 +675,12 @@
         h('button', { onclick: () => { if (ui.history.length === 0 || confirm('Start a new game?')) newGame(); } }, 'New game')),
       h('div', { class: 'toggles' },
         toggle('autoEnd', 'Auto-end turn when nothing is left to do'),
-        toggle('hitLines', 'Show every hit line (all units)'),
-        toggle('coords', 'Show hex coordinates')));
+        toggle('threats', 'Show attack arrows on every enemy you can capture'),
+        toggle('coords', 'Show hex coordinates')),
+      h('label', { class: 'palette' }, 'Colours ',
+        h('select', { onchange: (e) => { ui.settings.palette = e.target.value; store.set('palette', e.target.value); render(); } },
+          Object.entries(PALETTES).map(([id, p]) => h('option', { value: id, selected: id === ui.settings.palette }, p.name)))),
+      h('p', { class: 'hint' }, PALETTES[ui.settings.palette].note));
   }
 
   function armiesCard(st) {

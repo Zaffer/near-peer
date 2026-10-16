@@ -24,7 +24,7 @@
     if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`${msg || ''} expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`);
   };
   const step = (s, unitId, to) => E.apply(s, { type: 'step', unitId, to });
-  const attack = (s, attackerId, targetId) => E.apply(s, { type: 'attack', attackerId, targetId });
+  const share = (s, unitId, to) => E.apply(s, { type: 'step', unitId, to, capture: false });
   const illegal = (s, action) => ok(E.whyIllegal(s, action), `expected illegal: ${JSON.stringify(action)}`);
   const cannotStep = (s, unitId, to) => illegal(s, { type: 'step', unitId, to });
   // Walk a path and return the state; fails if any step is illegal.
@@ -189,7 +189,7 @@
     ok(!E.reachable(s, 'p0-light').includes(ROW[2]), 'the hex behind the armour is only reachable through it');
   });
 
-  test('cannot step onto a non-vulnerable enemy normal unit', () => {
+  test('cannot step onto an enemy normal unit you can\'t beat', () => {
     const s = scenario({ units: [{ player: 0, type: 'light', hex: ROW[0] }, { player: 1, type: 'armour', hex: ROW[1] }] });
     cannotStep(s, 'p0-light', ROW[1]);
   });
@@ -217,23 +217,28 @@
     step(s, 'p0-covert', '-2,1');
   });
 
-  test('covert cannot join a hex that already holds two units', () => {
-    const s = scenario({ units: [
-      { player: 0, type: 'covert', hex: ROW[0] },
-      { player: 1, type: 'armour', hex: ROW[1] },
-      { player: 1, type: 'covert', hex: ROW[1] },
-    ] });
-    cannotStep(s, 'p0-covert', ROW[1]);
+  test('covert cannot join a hex that already holds two units it can\'t beat', () => {
+    const s = scenario({
+      terrain: { [ROW[1]]: ['fortification', 1] },
+      units: [
+        { player: 0, type: 'covert', hex: ROW[0] },
+        { player: 1, type: 'armour', hex: ROW[1] },
+        { player: 1, type: 'covert', hex: ROW[1] },
+      ],
+    });
+    cannotStep(s, 'p0-covert', ROW[1]); // covert 1 vs covert 2 (fortified) and armour 4
   });
 
   test('two coverts can share a hex', () => {
     const s = scenario({ units: [{ player: 0, type: 'covert', hex: ROW[0] }, { player: 1, type: 'covert', hex: ROW[1] }] });
-    step(s, 'p0-covert', ROW[1]);
+    ok(!share(s, 'p0-covert', ROW[1]).units['p1-covert'].dead);
   });
 
-  test('a normal unit may move onto a lone covert (prototype rule)', () => {
+  test('a normal unit may move onto a lone covert without capturing it (prototype rule)', () => {
     const s = scenario({ units: [{ player: 0, type: 'light', hex: ROW[0] }, { player: 1, type: 'covert', hex: ROW[1] }] });
-    step(s, 'p0-light', ROW[1]);
+    const s2 = share(s, 'p0-light', ROW[1]);
+    ok(!s2.units['p1-covert'].dead);
+    eq(E.unitsAt(s2, ROW[1]).length, 2);
   });
 
   test('option: only coverts may share hexes', () => {
@@ -241,19 +246,32 @@
       options: { normalUnitsCanJoinOccupiedHex: false },
       units: [{ player: 0, type: 'light', hex: ROW[0] }, { player: 1, type: 'covert', hex: ROW[1] }],
     });
-    cannotStep(s, 'p0-light', ROW[1]);
+    illegal(s, { type: 'step', unitId: 'p0-light', to: ROW[1], capture: false });
   });
 
-  // ---------------------------------------------------------------- attacks
+  // ---------------------------------------------------------------- combined attack & capturing
+  // Attack is passive. Stepping onto an enemy captures it if the attack of every
+  // one of your units in range of it adds up to at least its defence.
 
-  test('attack ≥ defence makes the target vulnerable; lower does nothing', () => {
+  test('a unit alone captures when its attack ≥ the defence', () => {
+    const s = scenario({ units: [
+      { player: 0, type: 'hero', hex: ROW[1] },
+      { player: 1, type: 'armour', hex: ROW[2] },
+      { player: 1, type: 'light', hex: ROW[4] },
+    ] });
+    ok(step(s, 'p0-hero', ROW[2]).units['p1-armour'].dead, 'hero 3 vs armour 3');
+  });
+
+  test('units in range add their attacks together', () => {
     const s = scenario({ units: [
       { player: 0, type: 'light', hex: ROW[1] },
-      { player: 0, type: 'hero', hex: '-1,1' },
+      { player: 0, type: 'covert', hex: '-1,1' },
       { player: 1, type: 'armour', hex: ROW[2] },
+      { player: 1, type: 'hero', hex: ROW[4] },
     ] });
-    eq(attack(s, 'p0-light', 'p1-armour').vulnerable, [], 'light 2 vs armour 3');
-    eq(attack(s, 'p0-hero', 'p1-armour').vulnerable, ['p1-armour'], 'hero 3 vs armour 3');
+    const a = E.assault(s, 'p1-armour');
+    eq([a.total, a.defence, a.beats], [3, 3, true], 'light 2 + covert 1 vs armour 3');
+    ok(step(s, 'p0-light', ROW[2]).units['p1-armour'].dead);
   });
 
   test('town adds attack, fortification adds defence, capital adds both', () => {
@@ -271,42 +289,117 @@
     eq(E.stat(s, 'p1-hero', 'defence'), 4);
   });
 
-  test('ranged hits anything within 2 hexes, not 3', () => {
+  test('ranged adds its attack to anything within 2 hexes, not 3', () => {
     const s = scenario({ units: [
       { player: 0, type: 'ranged', hex: ROW[0] },
       { player: 1, type: 'light', hex: ROW[1] },
       { player: 1, type: 'hero', hex: ROW[2] },
       { player: 1, type: 'covert', hex: ROW[3] },
     ] });
-    eq(E.attackTargets(s, 'p0-ranged').sort(), ['p1-hero', 'p1-light']);
+    eq(E.assault(s, 'p1-hero').total, 3);
+    eq(E.assault(s, 'p1-covert').contributors, []);
+    ok(!E.assault(s, 'p1-covert').beats, 'nobody in range means no capture');
   });
 
-  test('only one attack per turn', () => {
+  test('a hero on its capital (defence 4) falls to Light + Armour + Covert', () => {
+    const units = [
+      { player: 0, type: 'light', hex: ROW[1] },
+      { player: 0, type: 'armour', hex: '0,1' },
+      { player: 0, type: 'covert', hex: '-1,1' },
+      { player: 1, type: 'hero', hex: ROW[2] },
+      { player: 1, type: 'armour', hex: '2,-2' },
+    ];
+    const terrain = { [ROW[2]]: ['capital', 1] };
+    const s = scenario({ terrain, units });
+    const s2 = step(s, 'p0-light', ROW[2]);
+    ok(s2.units['p1-hero'].dead);
+    eq(s2.winner, 0, 'and the light is now on the capital');
+    const noCovert = scenario({ terrain, units: units.filter((u) => u.type !== 'covert' || u.player !== 0) });
+    cannotStep(noCovert, 'p0-light', ROW[2]); // 2 + 1 = 3 vs 4
+  });
+
+  test('a unit sharing the target\'s hex adds its attack', () => {
     const s = scenario({ units: [
-      { player: 0, type: 'hero', hex: ROW[1] },
-      { player: 0, type: 'light', hex: '-1,1' },
+      { player: 0, type: 'light', hex: ROW[1] },
+      { player: 0, type: 'covert', hex: ROW[2] },
+      { player: 1, type: 'armour', hex: ROW[2] },
+      { player: 1, type: 'hero', hex: ROW[4] },
+    ] });
+    const s2 = step(s, 'p0-light', ROW[2]); // 2 + 1 vs 3, then the light joins its own covert
+    ok(s2.units['p1-armour'].dead);
+    eq(E.unitsAt(s2, ROW[2]).length, 2);
+  });
+
+  test('the moving unit counts from the hex it steps in from, so it can walk up and capture', () => {
+    const s = scenario({ units: [
+      { player: 0, type: 'light', hex: ROW[0] },
+      { player: 1, type: 'covert', hex: ROW[2] },
+      { player: 1, type: 'hero', hex: '2,-2' },
+    ] });
+    ok(walk(s, 'p0-light', [ROW[1], ROW[2]]).units['p1-covert'].dead);
+  });
+
+  test('a town only helps while you stand on it', () => {
+    const s = scenario({
+      terrain: { [ROW[1]]: ['town', 0] },
+      units: [
+        { player: 0, type: 'light', hex: ROW[1] },
+        { player: 1, type: 'armour', hex: ROW[2] },
+        { player: 1, type: 'hero', hex: '2,-2' },
+      ],
+    });
+    ok(step(s, 'p0-light', ROW[2]).units['p1-armour'].dead, 'from the town: 3 vs 3');
+    const s2 = scenario({
+      terrain: { [ROW[0]]: ['town', 0] },
+      units: [
+        { player: 0, type: 'light', hex: ROW[0] },
+        { player: 1, type: 'armour', hex: ROW[2] },
+        { player: 1, type: 'hero', hex: '2,-2' },
+      ],
+    });
+    cannotStep(step(s2, 'p0-light', ROW[1]), 'p0-light', ROW[2]); // left the town: 2 vs 3
+  });
+
+  test('one move can capture several units', () => {
+    const s = scenario({ units: [
+      { player: 0, type: 'light', hex: ROW[0] },
+      { player: 1, type: 'covert', hex: ROW[1] },
+      { player: 1, type: 'ranged', hex: ROW[2] },
+      { player: 1, type: 'hero', hex: '2,-2' },
+    ] });
+    const s2 = walk(s, 'p0-light', [ROW[1], ROW[2]]);
+    ok(s2.units['p1-covert'].dead && s2.units['p1-ranged'].dead);
+  });
+
+  test('a stacked hex: beat both units and you capture both', () => {
+    const s = scenario({ units: [
+      { player: 0, type: 'light', hex: ROW[1] },
+      { player: 0, type: 'hero', hex: '0,1' },
+      { player: 1, type: 'hero', hex: ROW[2] },
+      { player: 1, type: 'covert', hex: ROW[2] },
+      { player: 1, type: 'armour', hex: '2,-2' },
+    ] });
+    const s2 = step(s, 'p0-light', ROW[2]); // 2 + 3 = 5 vs hero 3 and covert 1
+    ok(s2.units['p1-hero'].dead && s2.units['p1-covert'].dead);
+  });
+
+  test('a stacked hex: beating only the covert is not enough to get in', () => {
+    const s = scenario({ units: [
+      { player: 0, type: 'light', hex: ROW[1] },
+      { player: 1, type: 'hero', hex: ROW[2] },
       { player: 1, type: 'covert', hex: ROW[2] },
     ] });
-    const s2 = attack(s, 'p0-hero', 'p1-covert');
-    illegal(s2, { type: 'attack', attackerId: 'p0-light', targetId: 'p1-covert' });
+    cannotStep(s, 'p0-light', ROW[2]); // beats the covert (2 vs 1) but not the hero (2 vs 3)
   });
 
-  test('units sharing a hex can attack each other', () => {
-    const s = scenario({ units: [{ player: 0, type: 'covert', hex: ROW[1] }, { player: 1, type: 'ranged', hex: ROW[1] }] });
-    eq(attack(s, 'p0-covert', 'p1-ranged').vulnerable, ['p1-ranged']);
-  });
-
-  // ---------------------------------------------------------------- defeating units
-
-  test('attack then move onto a vulnerable enemy defeats it', () => {
+  test('you may walk in beside an enemy you could capture (capture: false)', () => {
     const s = scenario({ units: [
-      { player: 0, type: 'hero', hex: ROW[0] },
-      { player: 1, type: 'light', hex: ROW[1] },
-      { player: 1, type: 'armour', hex: ROW[4] },
+      { player: 0, type: 'covert', hex: ROW[1] },
+      { player: 1, type: 'ranged', hex: ROW[2] },
+      { player: 1, type: 'hero', hex: '2,-2' },
     ] });
-    const s2 = step(attack(s, 'p0-hero', 'p1-light'), 'p0-hero', ROW[1]);
-    ok(s2.units['p1-light'].dead);
-    eq(s2.units['p0-hero'].hex, ROW[1]);
+    ok(!share(s, 'p0-covert', ROW[2]).units['p1-ranged'].dead);
+    ok(step(s, 'p0-covert', ROW[2]).units['p1-ranged'].dead);
   });
 
   test('capturing does not end the move', () => {
@@ -315,7 +408,8 @@
       { player: 1, type: 'ranged', hex: ROW[1] },
       { player: 1, type: 'armour', hex: ROW[4] },
     ] });
-    const s2 = step(attack(s, 'p0-light', 'p1-ranged'), 'p0-light', ROW[1]);
+    const s2 = step(s, 'p0-light', ROW[1]);
+    ok(s2.units['p1-ranged'].dead);
     ok(!s2.turnState.moveDone);
     step(s2, 'p0-light', ROW[2]);
   });
@@ -329,7 +423,7 @@
         { player: 1, type: 'hero', hex: ROW[4] },
       ],
     });
-    const s2 = step(attack(s, 'p0-armour', 'p1-ranged'), 'p0-armour', ROW[1]);
+    const s2 = step(s, 'p0-armour', ROW[1]); // armour 1 vs ranged 1
     ok(s2.units['p1-ranged'].dead);
     step(s2, 'p0-armour', ROW[2]);
   });
@@ -343,11 +437,10 @@
         { player: 1, type: 'armour', hex: ROW[4] },
       ],
     });
-    ok(step(attack(s, 'p0-light', 'p1-ranged'), 'p0-light', ROW[1]).turnState.moveDone);
+    ok(step(s, 'p0-light', ROW[1]).turnState.moveDone);
   });
 
-  test('a covert stuck on a minefield can defeat a vulnerable enemy sharing its hex', () => {
-    // The reported case: light makes the ranged vulnerable; my covert is already on its minefield.
+  test('a covert stuck on a minefield can capture an enemy sharing its hex', () => {
     const s = scenario({
       terrain: { [ROW[2]]: ['minefield', 1] },
       units: [
@@ -358,64 +451,36 @@
       ],
     });
     eq(E.stat(s, 'p0-covert', 'movement'), 0);
-    const s2 = attack(s, 'p0-light', 'p1-ranged');
-    eq(E.captureTargets(s2, 'p0-covert'), ['p1-ranged']);
-    const s3 = E.apply(s2, { type: 'capture', unitId: 'p0-covert', targetId: 'p1-ranged' });
-    ok(s3.units['p1-ranged'].dead);
-    ok(s3.turnState.moveDone, 'capturing in place used the move (0 movement left)');
+    eq(E.captureTargets(s, 'p0-covert'), ['p1-ranged']);
+    const s2 = E.apply(s, { type: 'capture', unitId: 'p0-covert', targetId: 'p1-ranged' });
+    ok(s2.units['p1-ranged'].dead);
+    ok(s2.turnState.moveDone, 'capturing in place used the move (0 movement left)');
   });
 
-  test('defeating in place uses the move, so no other unit can move', () => {
+  test('capturing in place uses the move, so no other unit can move', () => {
     const s = scenario({ units: [
       { player: 0, type: 'covert', hex: ROW[1] },
-      { player: 0, type: 'light', hex: '-1,1' },
+      { player: 0, type: 'light', hex: '-2,2' },
       { player: 1, type: 'ranged', hex: ROW[1] },
       { player: 1, type: 'hero', hex: ROW[4] },
     ] });
-    const s2 = E.apply(attack(s, 'p0-covert', 'p1-ranged'), { type: 'capture', unitId: 'p0-covert', targetId: 'p1-ranged' });
+    const s2 = E.apply(s, { type: 'capture', unitId: 'p0-covert', targetId: 'p1-ranged' });
     cannotStep(s2, 'p0-light', '-1,2');
     step(s2, 'p0-covert', ROW[2]); // the covert still has its 1 movement
   });
 
-  test('cannot defeat in place a unit that is not vulnerable, or after moving another unit', () => {
-    const s = scenario({ units: [
+  test('cannot capture in place an enemy you can\'t beat, or after moving another unit', () => {
+    const units = [
       { player: 0, type: 'covert', hex: ROW[1] },
-      { player: 0, type: 'hero', hex: '-1,1' },
       { player: 0, type: 'light', hex: '-2,2' },
-      { player: 1, type: 'ranged', hex: ROW[1] },
-    ] });
-    illegal(s, { type: 'capture', unitId: 'p0-covert', targetId: 'p1-ranged' });
-    const s2 = step(attack(s, 'p0-hero', 'p1-ranged'), 'p0-light', '-1,2');
-    illegal(s2, { type: 'capture', unitId: 'p0-covert', targetId: 'p1-ranged' });
-  });
-
-  test('vulnerability wears off at the end of the turn', () => {
-    const s = scenario({ units: [{ player: 0, type: 'hero', hex: ROW[0] }, { player: 1, type: 'light', hex: ROW[1] }] });
-    const s2 = E.apply(attack(s, 'p0-hero', 'p1-light'), { type: 'endTurn' });
-    eq(s2.vulnerable, []);
-    eq(s2.current, 1);
-  });
-
-  test('moving then attacking ends the move (no move, attack, move)', () => {
-    const s = scenario({ units: [
-      { player: 0, type: 'light', hex: ROW[0] },
-      { player: 0, type: 'hero', hex: ROW[3] },
-      { player: 1, type: 'covert', hex: ROW[4] },
-    ] });
-    const s2 = attack(step(s, 'p0-light', ROW[1]), 'p0-hero', 'p1-covert');
-    ok(s2.turnState.moveDone);
-    cannotStep(s2, 'p0-light', ROW[2]);
-  });
-
-  test('attack first, then move with a different unit', () => {
-    const s = scenario({ units: [
-      { player: 0, type: 'ranged', hex: ROW[0] },
-      { player: 0, type: 'light', hex: '-1,1' },
-      { player: 1, type: 'covert', hex: ROW[1] },
-      { player: 1, type: 'hero', hex: ROW[4] },
-    ] });
-    const s2 = step(attack(s, 'p0-ranged', 'p1-covert'), 'p0-light', ROW[1]);
-    ok(s2.units['p1-covert'].dead);
+      { player: 1, type: 'hero', hex: ROW[1] },
+      { player: 1, type: 'armour', hex: '2,-2' },
+    ];
+    const capture = { type: 'capture', unitId: 'p0-covert', targetId: 'p1-hero' };
+    illegal(scenario({ units }), capture); // covert 1 vs hero 3
+    const s = scenario({ units: units.concat({ player: 0, type: 'hero', hex: '-1,1' }) });
+    ok(E.isLegal(s, capture), 'covert 1 + hero 3 vs hero 3');
+    illegal(step(s, 'p0-light', '-1,2'), capture);
   });
 
   // ---------------------------------------------------------------- winning
@@ -438,14 +503,15 @@
     eq(step(s, 'p0-light', ROW[1]).winner, 0);
   });
 
-  test('an enemy covert on the capital blocks the win', () => {
+  test('an enemy covert left on the capital blocks the win', () => {
     const s = scenario({
       terrain: { [ROW[2]]: ['capital', 1] },
-      units: [{ player: 0, type: 'light', hex: ROW[1] }, { player: 1, type: 'covert', hex: ROW[2] }],
+      units: [{ player: 0, type: 'light', hex: ROW[1] }, { player: 1, type: 'covert', hex: ROW[2] }, { player: 1, type: 'hero', hex: '2,-2' }],
     });
-    const s2 = step(s, 'p0-light', ROW[2]);
+    const s2 = share(s, 'p0-light', ROW[2]);
     eq(s2.phase, 'battle');
     eq(s2.winner, null);
+    eq(step(s, 'p0-light', ROW[2]).winner, 0, 'capturing the covert instead wins');
   });
 
   test('your own covert on the capital does not block the win', () => {
@@ -460,10 +526,27 @@
     eq(step(s, 'p0-light', ROW[2]).winner, 0);
   });
 
+  test('a covert (Insurgency) takes the capital even with an enemy unit on it', () => {
+    const s = scenario({
+      terrain: { [ROW[2]]: ['capital', 1] },
+      units: [{ player: 0, type: 'covert', hex: ROW[1] }, { player: 1, type: 'hero', hex: ROW[2] }, { player: 1, type: 'armour', hex: '2,-2' }],
+    });
+    const s2 = step(s, 'p0-covert', ROW[2]); // can't beat the hero (1 vs 4), so it walks in beside it
+    ok(!s2.units['p1-hero'].dead);
+    eq(s2.winner, 0);
+  });
+
+  test('hero + covert on a capital fill it, keeping an enemy covert out', () => {
+    const s = scenario({
+      terrain: { [ROW[2]]: ['capital', 1] },
+      units: [{ player: 0, type: 'covert', hex: ROW[1] }, { player: 1, type: 'hero', hex: ROW[2] }, { player: 1, type: 'covert', hex: ROW[2] }],
+    });
+    cannotStep(s, 'p0-covert', ROW[2]); // 1 vs hero 4 and covert 2
+  });
+
   test('defeating the last enemy unit wins', () => {
     const s = scenario({ units: [{ player: 0, type: 'hero', hex: ROW[0] }, { player: 1, type: 'light', hex: ROW[1] }] });
-    const s2 = step(attack(s, 'p0-hero', 'p1-light'), 'p0-hero', ROW[1]);
-    eq(s2.winner, 0);
+    eq(step(s, 'p0-hero', ROW[1]).winner, 0);
   });
 
   test('nothing is legal after the game is over', () => {
@@ -478,12 +561,10 @@
 
   // ---------------------------------------------------------------- turn flow
 
-  test('hasAnyAction is false once attack and move are both spent', () => {
+  test('hasAnyAction is false once the move is spent', () => {
     const s = scenario({ units: [{ player: 0, type: 'hero', hex: ROW[0] }, { player: 1, type: 'light', hex: ROW[1] }, { player: 1, type: 'armour', hex: ROW[4] }] });
-    let s2 = attack(s, 'p0-hero', 'p1-light');
-    ok(E.hasAnyAction(s2));
-    s2 = step(s2, 'p0-hero', ROW[1]);
-    eq(E.hasAnyAction(s2), false);
+    ok(E.hasAnyAction(s));
+    eq(E.hasAnyAction(step(s, 'p0-hero', ROW[1])), false);
   });
 
   test('a random full game never breaks the rules engine', () => {
@@ -497,8 +578,11 @@
         const mine = E.unitsOf(s, s.current);
         const acts = [{ type: 'endTurn' }];
         for (const u of mine) {
-          for (const t of E.attackTargets(s, u.id)) acts.push({ type: 'attack', attackerId: u.id, targetId: t });
-          for (const k of E.legalSteps(s, u.id)) acts.push({ type: 'step', unitId: u.id, to: k });
+          for (const k of E.legalSteps(s, u.id)) {
+            acts.push({ type: 'step', unitId: u.id, to: k });
+            const sideBySide = { type: 'step', unitId: u.id, to: k, capture: false };
+            if (E.isLegal(s, sideBySide)) acts.push(sideBySide);
+          }
           for (const t of E.captureTargets(s, u.id)) acts.push({ type: 'capture', unitId: u.id, targetId: t });
         }
         s = E.apply(s, acts[Math.floor(Math.random() * acts.length)]);

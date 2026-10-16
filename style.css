@@ -5,7 +5,7 @@
   --muted: #6b7280;
   --line: #e5e1d8;
   --hit: #b91c1c;
-  --danger: #c026d3;   /* vulnerable / would make vulnerable */
+  --danger: #c026d3;   /* capturable / attack that would capture */
   --table: #2b333c;    /* board background, also the gap between tiles */
   --good: #15803d;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -47,8 +47,6 @@ body { margin: 0; background: var(--bg); }
 /* ---- board svg ---- */
 .tile { stroke: var(--table); stroke-width: 4; }
 .hit { fill: transparent; cursor: pointer; }
-.tlabel { font-size: 11px; font-weight: 700; text-anchor: middle; }
-.tmods { font-size: 9.5px; font-weight: 500; text-anchor: middle; opacity: .85; }
 .coord { font-size: 9px; text-anchor: middle; fill: #000; opacity: .45; }
 .side-label { font-size: 12px; font-weight: 700; text-anchor: middle; letter-spacing: .04em; }
 .ulabel { font-size: 15px; font-weight: 800; text-anchor: middle; fill: #fff; }
@@ -60,7 +58,7 @@ body { margin: 0; background: var(--bg); }
 .ustats.debuff { fill: var(--hit); }
 .sel-ring-outer { fill: none; stroke: #111; stroke-width: 6; }
 .sel-ring { fill: none; stroke: #fff; stroke-width: 2.5; }
-.vuln-ring {
+.capt-ring {
   fill: none; stroke: var(--danger); stroke-width: 3.5; stroke-dasharray: 5 3;
   animation: march 0.8s linear infinite;
 }
@@ -76,14 +74,15 @@ body { margin: 0; background: var(--bg); }
 .hover-ring { fill: none; stroke: #fff; stroke-opacity: .9; stroke-width: 2.5; }
 .move-path { fill: none; stroke: var(--good); stroke-width: 3; stroke-dasharray: 2 5; stroke-linecap: round; opacity: .8; }
 
-.atk-line { stroke-width: 2.5; }
+.atk-line { fill: none; stroke-width: 2.5; stroke-linecap: round; }
 .atk-line.hit { stroke: var(--danger); }
 .atk-line.miss { stroke: #6b7280; stroke-dasharray: 5 4; stroke-width: 2; }
 .atk-tag { stroke-width: 1; }
 .atk-tag.hit { fill: #fae8ff; stroke: var(--danger); }
 .atk-tag.miss { fill: #f3f4f6; stroke: #9ca3af; }
 .atk-tag-text { font-size: 10px; font-weight: 700; text-anchor: middle; fill: #111; }
-.threat-line { stroke-width: 1.8; stroke-opacity: .55; }
+.atk-bubble { stroke: #fff; stroke-width: 1.5; }
+.atk-bubble-text { font-size: 9.5px; font-weight: 800; text-anchor: middle; fill: #fff; }
 
 @keyframes march { to { stroke-dashoffset: -16; } }
 
@@ -113,9 +112,9 @@ body { margin: 0; background: var(--bg); }
 .row { display: flex; flex-wrap: wrap; gap: 6px; }
 .buff { color: var(--good); font-weight: 700; }
 .debuff { color: var(--hit); font-weight: 700; }
-.vuln-text { color: var(--danger); }
+.capt-text { color: var(--danger); }
 .tag { font-size: 11px; padding: 1px 6px; border-radius: 999px; margin-left: 6px; }
-.tag.vuln { background: #fae8ff; color: var(--danger); }
+.tag.capt { background: #fae8ff; color: var(--danger); }
 
 button {
   font: inherit;
@@ -214,3 +213,6 @@ details summary { cursor: pointer; font-weight: 600; }
 .skills { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
 .pick-skill { display: inline-flex; margin-left: auto; color: #6d28d9; }
 .pick-name { width: 100%; }
+
+.palette { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; }
+.palette select { font: inherit; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--line); }

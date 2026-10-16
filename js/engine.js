@@ -3,8 +3,12 @@
  *
  * Pure functions: apply(state, action) returns a new state or throws a RuleError.
  * Every legality check lives in the action handlers (H.*). Queries such as
- * legalSteps, attackTargets and reachable work by *trying* actions, so the UI
+ * legalSteps, captureTargets and reachable work by *trying* actions, so the UI
  * can never disagree with the rules.
+ *
+ * There is no attack action. Attack is passive: stepping onto an enemy captures
+ * it when the combined attack of every one of your units in range of it is at
+ * least its defence (see assault).
  */
 (function (global) {
   'use strict';
@@ -19,13 +23,13 @@
   const clone = (o) => JSON.parse(JSON.stringify(o));
   const other = (p) => 1 - p;
   const pname = (p) => R.players[p].name;
-  const freshTurn = () => ({ attackUsed: false, move: null, moveDone: false });
+  const freshTurn = () => ({ move: null, moveDone: false });
 
   // ---------------------------------------------------------------- setup
 
   function newGame({ options } = {}) {
     const hexes = {};
-    for (const k of Hex.all(R.boardRadius)) hexes[k] = { terrain: 'plain', owner: null, zone: null };
+    for (const k of Hex.all(R.boardRadius)) hexes[k] = { terrain: 'plain', owner: null, placedBy: null, zone: null };
     R.zones.forEach((keys, p) => keys.forEach((k) => { hexes[k].zone = p; }));
     return {
       phase: 'terrain', // terrain → units → battle → over
@@ -36,7 +40,6 @@
       units: {},
       supply: [0, 1].map(() => ({ terrain: R.terrainSet.slice(), units: R.army.slice() })),
       turnState: freshTurn(),
-      vulnerable: [],
       winner: null,
       winReason: '',
       log: [{ p: null, text: `${pname(R.firstPlayer)} places terrain first.` }],
@@ -50,6 +53,7 @@
     for (const [k, [t, owner]] of Object.entries(terrain)) {
       s.hexes[k].terrain = t;
       s.hexes[k].owner = R.terrain[t].capital ? owner : null;
+      s.hexes[k].placedBy = owner;
     }
     for (const u of units) {
       const id = u.id || `p${u.player}-${u.type}`;
@@ -90,34 +94,48 @@
   }
   const stat = (s, id, name) => stats(s, id)[name].total;
 
-  function attackPreview(s, attackerId, targetId) {
-    const a = s.units[attackerId];
+  const inRangeOf = (s, attackerId, k) => {
+    const d = Hex.distance(s.units[attackerId].hex, k);
+    return d <= stat(s, attackerId, 'range') && (d > 0 || s.options.allowSameHexAttack);
+  };
+
+  // The combined attack against a unit from where everyone stands right now:
+  // every enemy of it within range adds its attack (terrain included).
+  // A unit stepping onto the target counts from the hex it steps in from,
+  // which is simply where it stands at that moment.
+  // → { total, defence, beats, contributors: [{ id, attack }] }
+  function assault(s, targetId) {
     const t = s.units[targetId];
-    const attack = stat(s, attackerId, 'attack');
+    const contributors = unitsOf(s, other(t.player))
+      .filter((a) => inRangeOf(s, a.id, t.hex))
+      .map((a) => ({ id: a.id, attack: stat(s, a.id, 'attack') }));
+    const total = contributors.reduce((n, c) => n + c.attack, 0);
     const defence = stat(s, targetId, 'defence');
-    const range = stat(s, attackerId, 'range');
-    const distance = Hex.distance(a.hex, t.hex);
-    const inRange = distance <= range && (distance > 0 || s.options.allowSameHexAttack);
-    return { attack, defence, range, distance, inRange, hit: R.logic.hits(attack, defence) };
+    return { total, defence, contributors, beats: contributors.length > 0 && R.logic.beats(total, defence) };
   }
 
   function hexesInRange(s, id) {
     const u = s.units[id];
     const range = stat(s, id, 'range');
-    return Object.keys(s.hexes).filter((k) => {
-      const d = Hex.distance(u.hex, k);
-      return d <= range && (d > 0 || s.options.allowSameHexAttack);
-    });
+    return Object.keys(s.hexes).filter((k) => inRangeOf(s, id, k));
   }
 
-  // Could `unit` step into hex `to` right now? Entering a hex captures any
-  // vulnerable enemies there; whoever is left must be able to share with it.
-  function entryCheck(s, unit, to) {
+  // Could `unit` step into hex `to` right now? Entering a hex captures every
+  // enemy there that the combined attack beats (unless capture is false);
+  // whoever is left must be able to share the hex with it.
+  function entryCheck(s, unit, to, capture = true) {
     const occupants = unitsAt(s, to).filter((o) => o.id !== unit.id);
-    const captures = occupants.filter((o) => o.player !== unit.player && s.vulnerable.includes(o.id));
+    const enemies = occupants.filter((o) => o.player !== unit.player);
+    const captures = capture ? enemies.filter((o) => assault(s, o.id).beats) : [];
     const stays = occupants.filter((o) => !captures.includes(o));
     const fits = R.logic.canShareHex(stays.map((o) => o.type), unit.type, s.options);
-    return { fits, captures };
+    let why = 'That hex is full';
+    const strong = enemies.find((o) => !captures.includes(o));
+    if (!fits && strong) {
+      const a = assault(s, strong.id);
+      why = `Can't capture the ${typeName(s, strong.id)} there: your attack ${a.total} vs its defence ${a.defence}`;
+    }
+    return { fits, captures, why };
   }
 
   function capitalOf(s, p) {
@@ -129,6 +147,8 @@
   function log(s, text, p = s.current) {
     s.log.push({ p, text, turn: s.turn });
   }
+
+  const startMove = (s, u) => ({ unitId: u.id, remaining: stat(s, u.id, 'movement'), path: [u.hex], visited: [] });
 
   function needBattle(s) {
     need(s.phase === 'battle', s.phase === 'over' ? 'The game is over' : 'The battle has not started yet');
@@ -159,6 +179,16 @@
     if (left(other(s.current)) > 0) s.current = other(s.current);
   }
 
+  // Remove an enemy unit, logging the attack that took it.
+  function capture(s, capturerId, targetId) {
+    const t = s.units[targetId];
+    const a = assault(s, targetId);
+    const parts = a.contributors.map((c) => `${typeName(s, c.id)} ${c.attack}`).join(' + ');
+    log(s, `${typeName(s, capturerId)} captured ${pname(t.player)} ${typeName(s, targetId)} (${parts} = ${a.total} vs ${a.defence})`);
+    t.dead = true;
+    t.hex = null;
+  }
+
   function win(s, p, reason) {
     s.phase = 'over';
     s.winner = p;
@@ -175,9 +205,10 @@
       const cap = s.options.winByCapital && capitalOf(s, enemy);
       if (cap) {
         const occ = unitsAt(s, cap);
-        const mine = occ.some((u) => u.player === p);
+        const mine = occ.filter((u) => u.player === p);
         const enemyThere = occ.some((u) => u.player === enemy);
-        if (mine && !(s.options.capitalNeedsNoEnemyPresent && enemyThere)) {
+        const takesAnyway = mine.some((u) => R.logic.skillFlag(u.type, 'takesOccupiedCapital'));
+        if (mine.length && (takesAnyway || !(s.options.capitalNeedsNoEnemyPresent && enemyThere))) {
           return win(s, p, `took the ${pname(enemy)} capital`);
         }
       }
@@ -198,6 +229,7 @@
     need(hex.terrain === 'plain', 'That hex already has terrain');
     hex.terrain = terrain;
     hex.owner = R.terrain[terrain].capital ? s.current : null; // only capitals belong to anyone
+    hex.placedBy = s.current; // just a record (some colour schemes use it)
     sup.splice(sup.indexOf(terrain), 1);
     log(s, `placed ${R.terrain[terrain].name} at ${to}`);
     advancePlacement(s, 'terrain');
@@ -219,24 +251,21 @@
     advancePlacement(s, 'units');
   };
 
-  H.step = (s, { unitId, to }) => {
+  // Step one hex. Enemies on that hex are captured if the combined attack
+  // beats them; capture: false walks in alongside them instead (if they fit).
+  H.step = (s, { unitId, to, capture: doCapture = true }) => {
     needBattle(s);
     const u = ownUnit(s, unitId);
     const ts = s.turnState;
     need(!ts.moveDone, 'You have already moved this turn');
     need(!ts.move || ts.move.unitId === unitId, `Only your ${ts.move && typeName(s, ts.move.unitId)} can move this turn`);
-    if (!ts.move) ts.move = { unitId, remaining: stat(s, unitId, 'movement'), path: [u.hex], visited: [] };
+    if (!ts.move) ts.move = startMove(s, u);
     need(ts.move.remaining > 0, `${typeName(s, unitId)} has no movement left`);
     need(s.hexes[to] && Hex.distance(u.hex, to) === 1, 'You can only step to an adjacent hex');
-    const { fits, captures } = entryCheck(s, u, to);
-    need(fits, 'That hex is full');
+    const { fits, captures, why } = entryCheck(s, u, to, doCapture);
+    need(fits, why);
 
-    for (const c of captures) {
-      c.dead = true;
-      s.vulnerable = s.vulnerable.filter((id) => id !== c.id);
-      log(s, `${typeName(s, unitId)} defeated ${pname(c.player)} ${typeName(s, c.id)}`);
-      c.hex = null;
-    }
+    for (const c of captures) capture(s, unitId, c.id);
     const firstVisit = !ts.move.visited.includes(to);
     u.hex = to;
     ts.move.path.push(to);
@@ -248,61 +277,29 @@
     checkWin(s);
   };
 
-  // Defeat a vulnerable enemy that already shares this unit's hex. No step is
-  // needed (so it works with 0 movement), but it uses this unit's move for the turn;
-  // any movement left can still be spent afterwards.
+  // Capture an enemy that already shares this unit's hex (e.g. a covert sitting
+  // with it). No step is needed, so it works with 0 movement, but it is this
+  // unit's move for the turn; any movement left can still be spent afterwards.
   H.capture = (s, { unitId, targetId }) => {
     needBattle(s);
     const u = ownUnit(s, unitId);
     const ts = s.turnState;
     const t = s.units[targetId];
-    need(t && !t.dead && t.player !== s.current, 'Pick an enemy unit to defeat');
+    need(t && !t.dead && t.player !== s.current, 'Pick an enemy unit to capture');
     need(t.hex === u.hex, 'That unit is not on your hex. Move onto it instead');
-    need(s.vulnerable.includes(targetId), `${typeName(s, targetId)} is not vulnerable`);
     need(!ts.moveDone, 'You have already moved this turn');
     need(!ts.move || ts.move.unitId === unitId, `Only your ${ts.move && typeName(s, ts.move.unitId)} can move this turn`);
-    if (!ts.move) ts.move = { unitId, remaining: stat(s, unitId, 'movement'), path: [u.hex], visited: [] };
-    t.dead = true;
-    s.vulnerable = s.vulnerable.filter((id) => id !== targetId);
-    log(s, `${typeName(s, unitId)} defeated ${pname(t.player)} ${typeName(s, targetId)} on its own hex`);
-    t.hex = null;
+    const a = assault(s, targetId);
+    need(a.beats, `Can't capture the ${typeName(s, targetId)}: your attack ${a.total} vs its defence ${a.defence}`);
+    if (!ts.move) ts.move = startMove(s, u);
+    capture(s, unitId, targetId);
     if (s.options.captureEndsMove) ts.move.remaining = 0;
     if (ts.move.remaining <= 0) ts.moveDone = true;
     checkWin(s);
   };
 
-  H.attack = (s, { attackerId, targetId }) => {
-    needBattle(s);
-    ownUnit(s, attackerId);
-    const t = s.units[targetId];
-    need(t && !t.dead && t.player !== s.current, 'Pick an enemy unit to attack');
-    need(!s.turnState.attackUsed, 'You have already attacked this turn');
-    const pv = attackPreview(s, attackerId, targetId);
-    need(pv.inRange, 'Target is out of range');
-    if (s.turnState.move && !s.turnState.moveDone && s.options.attackEndsMoveInProgress) s.turnState.moveDone = true;
-    s.turnState.attackUsed = true;
-    if (pv.hit) s.vulnerable.push(targetId);
-    log(s, `${typeName(s, attackerId)} attacked ${typeName(s, targetId)}: ${pv.attack} vs ${pv.defence} → ${pv.hit ? 'VULNERABLE' : 'no effect'}`);
-  };
-
-  H.endMove = (s) => {
-    needBattle(s);
-    need(!s.turnState.moveDone, 'Move already finished');
-    s.turnState.moveDone = true;
-    log(s, s.turnState.move ? 'ended move' : 'skipped move');
-  };
-
-  H.skipAttack = (s) => {
-    needBattle(s);
-    need(!s.turnState.attackUsed, 'Attack already used');
-    s.turnState.attackUsed = true;
-    log(s, 'skipped attack');
-  };
-
   H.endTurn = (s, { auto } = {}) => {
     needBattle(s);
-    for (const id of s.vulnerable) log(s, `${pname(s.units[id].player)} ${typeName(s, id)} is no longer vulnerable`);
-    s.vulnerable = [];
     log(s, auto ? 'turn ended (nothing left to do)' : 'ended turn');
     s.turnState = freshTurn();
     s.current = other(s.current);
@@ -363,18 +360,12 @@
     return Hex.neighbors(u.hex, R.boardRadius).filter((k) => isLegal(s, { type: 'step', unitId, to: k }));
   }
 
-  // Vulnerable enemies this unit could defeat without stepping (they share its hex).
+  // Enemies this unit could capture without stepping (they share its hex).
   function captureTargets(s, unitId) {
     const u = s.units[unitId];
     if (!u || u.dead) return [];
     return unitsAt(s, u.hex)
       .filter((t) => isLegal(s, { type: 'capture', unitId, targetId: t.id }))
-      .map((t) => t.id);
-  }
-
-  function attackTargets(s, attackerId) {
-    return unitsOf(s, other(s.units[attackerId].player))
-      .filter((t) => isLegal(s, { type: 'attack', attackerId, targetId: t.id }))
       .map((t) => t.id);
   }
 
@@ -384,7 +375,6 @@
     p.phase = 'battle';
     p.current = p.units[unitId].player;
     p.turnState = freshTurn();
-    p.vulnerable = [];
     return p;
   }
 
@@ -406,10 +396,12 @@
       if (seen.has(sig)) return;
       seen.add(sig);
       for (const n of Hex.neighbors(u.hex, R.boardRadius)) {
-        const next = tryApply(s, { type: 'step', unitId, to: n });
-        if (next) {
-          found.add(n);
-          walk(next);
+        for (const capture of [true, false]) {
+          const next = tryApply(s, { type: 'step', unitId, to: n, capture });
+          if (next) {
+            found.add(n);
+            walk(next);
+          }
         }
       }
     };
@@ -422,19 +414,15 @@
   function hasAnyAction(s) {
     if (s.phase !== 'battle') return false;
     const ts = s.turnState;
-    const mine = unitsOf(s, s.current);
-    if (!ts.attackUsed && mine.some((u) => attackTargets(s, u.id).length)) return true;
-    if (!ts.moveDone) {
-      const movers = ts.move ? [s.units[ts.move.unitId]] : mine;
-      if (movers.some((u) => !u.dead && (legalSteps(s, u.id).length || captureTargets(s, u.id).length))) return true;
-    }
-    return false;
+    if (ts.moveDone) return false;
+    const movers = ts.move ? [s.units[ts.move.unitId]] : unitsOf(s, s.current);
+    return movers.some((u) => !u.dead && (legalSteps(s, u.id).length || captureTargets(s, u.id).length));
   }
 
   global.NP_ENGINE = {
     RuleError,
     newGame, scenario, apply, tryApply, whyIllegal, isLegal,
-    placeAction, legalPlacements, legalSteps, attackTargets, captureTargets, reachable, hasAnyAction,
-    aliveUnits, unitsOf, unitsAt, terrainAt, stats, stat, attackPreview, hexesInRange, capitalOf,
+    placeAction, legalPlacements, legalSteps, captureTargets, reachable, hasAnyAction,
+    aliveUnits, unitsOf, unitsAt, terrainAt, stats, stat, assault, hexesInRange, capitalOf,
   };
 })(typeof window !== 'undefined' ? window : globalThis);
