@@ -87,7 +87,12 @@
   }
 
   const P = (p) => R.players[p];
-  const pos = (k) => Hex.toPixel(k, SIZE);
+  // Red plays from the top of the board, so online the board is turned round for them:
+  // their side is at the bottom, as Blue's is. Everything is drawn through pos(), so text stays upright.
+  const pos = (k) => {
+    const p = Hex.toPixel(k, SIZE);
+    return ui.online && ui.online.seat === 1 ? { x: -p.x, y: -p.y } : p;
+  };
   const points = (k, size) => {
     const { x, y } = pos(k);
     return Hex.corners(x, y, size).map((c) => `${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ');
@@ -255,7 +260,9 @@
       create,
       onChange: onRemoteChange,
       onStatus: () => { render(); autoPlace(); },
+      onHover: () => renderOverlay(),
     });
+    ui.sharedHover = null;
     ui.state = ui.online.state;
     ui.history = ui.online.history;
     ui.selected = null;
@@ -308,6 +315,13 @@
       if (opts.length) commit(opts[Math.floor(Math.random() * opts.length)]);
       autoPlace();
     }, 250);
+  }
+
+  // Online: tell the others which hex your pointer is over (null when it leaves the board).
+  function shareHover(k) {
+    if (!ui.online || k === ui.sharedHover) return;
+    ui.sharedHover = k;
+    ui.online.hover(k);
   }
 
   function copyLink(link) {
@@ -502,6 +516,7 @@
 
     const tiles = svg('g', {}, root);
     svg('g', { id: 'ov-under', 'pointer-events': 'none' }, root);
+    const modsLayer = svg('g', { 'pointer-events': 'none' }, root);
     const unitsLayer = svg('g', { 'pointer-events': 'none' }, root);
     svg('g', { id: 'ov-over', 'pointer-events': 'none' }, root);
     // Effects and the aim arrow outlive a redraw, so an effect isn't cut short by the next click.
@@ -523,6 +538,7 @@
       const { x, y } = pos(k);
       const look = tileLook(hex);
       if (!mapView) drawTile(k, hex, t, x, y, look, groundFill(hex), tiles);
+      if (Object.keys(t.mods).length) drawTerrainMods(t.mods, x, y - SIZE * 0.61, modsLayer);
       if (ui.settings.coords) svgText(k, x, y + SIZE * 0.78, 'coord', tiles);
 
       // "grab": a unit here can be dragged (and the browser won't scroll the page instead).
@@ -564,6 +580,20 @@
     }
     // Just a big symbol; names and modifiers are in the hover bar and rules reference.
     if (hex.terrain !== 'plain') drawIcon('terrain', hex.terrain, x, y, SIZE * 1.4, look.ink, tiles, { opacity: 0.45, width: 1.3 });
+  }
+
+  // "+1⚔ +1🛡" on a small pill near the top of a tile: what the terrain does to a unit standing on it.
+  function drawTerrainMods(mods, cx, cy, parent) {
+    const items = Object.entries(mods);
+    const ITEM = 21;
+    const w = items.length * ITEM + 4;
+    const g = svg('g', {}, parent);
+    svg('rect', { x: cx - w / 2, y: cy - 7, width: w, height: 14, rx: 7, class: 'tmods-bg' }, g);
+    items.forEach(([k, v], i) => {
+      const ix = cx - w / 2 + 2 + i * ITEM;
+      svgText(signed(v), ix + 7, cy + 3.5, `tmods-text ${v > 0 ? 'buff' : 'debuff'}`, g);
+      drawIcon('stats', k, ix + 16, cy, 9.5, '#222', g, { width: 2.6 });
+    });
   }
 
   function drawUnit(u, cx, cy, r, parent) {
@@ -645,6 +675,14 @@
     }
 
     if (ui.hover) svg('polygon', { points: points(ui.hover, SIZE - 2), class: 'hover-ring' }, over);
+    // Online: the hex each other player's pointer is over, in their colour.
+    if (ui.online) {
+      for (const [seat, k] of Object.entries(ui.online.hovers)) {
+        if (Number(seat) === ui.online.seat || !st.hexes[k]) continue;
+        const color = P(Number(seat)).color;
+        svg('polygon', { points: points(k, SIZE - 3), class: 'peer-hover', stroke: color, fill: color }, over);
+      }
+    }
   }
 
   // Movement reach (light wash, outlined in the unit's colour), next legal steps
@@ -818,6 +856,7 @@
     });
     root.addEventListener('pointermove', (ev) => {
       ui.pointer = boardPoint(ev);
+      shareHover(hexAt(ui.pointer));
       const d = ui.drag;
       if (d && d.pointerId === ev.pointerId && !d.active && Math.hypot(ev.clientX - d.x, ev.clientY - d.y) > 8) {
         d.active = true;
@@ -834,7 +873,10 @@
     root.addEventListener('pointerup', (ev) => {
       const d = ui.drag;
       ui.drag = null;
-      if (ev.pointerType !== 'mouse') ui.pointer = null; // no cursor to follow on a touch screen
+      if (ev.pointerType !== 'mouse') { // no cursor to follow on a touch screen
+        ui.pointer = null;
+        shareHover(null);
+      }
       if (d && d.active) {
         ui.suppressClick = true; // the click that follows a drag isn't a click
         setTimeout(() => { ui.suppressClick = false; }, 0);
@@ -845,11 +887,13 @@
     root.addEventListener('pointercancel', () => {
       ui.drag = null;
       ui.pointer = null;
+      shareHover(null);
       drawAim();
     });
     root.addEventListener('pointerleave', () => {
       if (ui.drag) return;
       ui.pointer = null;
+      shareHover(null);
       drawAim();
     });
   }
@@ -1060,7 +1104,7 @@
     else if (o.status === 'ready' && o.opponent()) who = h('span', {}, chip(opp), `${P(opp).name} is connected.`);
     else if (o.status === 'ready') who = `Waiting for ${P(opp).name}. Send them this link:`;
     return h('section', { class: 'card' },
-      h('h2', {}, 'Online', h('span', { class: 'muted' }, ` · room ${o.roomId}`)),
+      h('h2', {}, 'Online', h('span', { class: 'muted' }, ` · room ${o.roomId}`), peopleTag(o)),
       o.seat === null ? null : h('div', {}, 'You are ', chip(o.seat), h('strong', {}, P(o.seat).name), '.'),
       who ? h('div', {}, who) : null,
       h('div', { class: 'row link-row' },
@@ -1071,6 +1115,14 @@
         + 'To play a friend, put the folder online (GitHub Pages works).') : null,
       o.error ? h('p', { class: 'hint bad' }, o.error) : null,
       h('div', { class: 'row' }, h('button', { onclick: () => { if (confirm('Leave the online game?')) goOffline(); } }, 'Leave')));
+  }
+
+  // "2 playing · 1 watching": everyone connected to this game, you included.
+  function peopleTag(o) {
+    if (o.status !== 'ready') return null;
+    const { playing, watching } = o.counts();
+    return h('span', { class: 'people', title: 'People connected to this game, you included' },
+      `${playing} playing · ${watching} watching`);
   }
 
   function armiesCard(st) {

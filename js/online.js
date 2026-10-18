@@ -66,9 +66,10 @@
 
   // Join a room. hooks.onChange({ state, history, prev, batch }) runs whenever the game
   // changes from the other side (batch is set when it's a single new move to animate);
-  // hooks.onStatus() runs when people come and go or the connection state changes.
+  // hooks.onStatus() runs when people come and go or the connection state changes;
+  // hooks.onHover() runs when a player's pointer moves to another hex (see `hovers`).
   // Saved per browser tab, so a reload rejoins the same game in the same seat.
-  function join(roomId, { create = false, onChange, onStatus } = {}) {
+  function join(roomId, { create = false, onChange, onStatus, onHover } = {}) {
     const saved = store.get(roomId);
     const me = {
       seat: saved ? saved.seat : create ? 0 : null,
@@ -78,6 +79,7 @@
     const game = { rev: saved ? saved.rev : 0, batches: saved ? saved.batches : [] };
     let { state, history } = replay(game.batches);
     const peers = {}; // peerId → { seat, at, id }
+    const hovers = {}; // seat → hex key the other players' pointers are over
     const on = {
       roomId,
       status: 'connecting', // connecting → ready | failed
@@ -86,8 +88,10 @@
       get state() { return state; },
       get history() { return history; },
       peers,
+      hovers,
     };
     let send = () => {};
+    let sendHover = () => {};
     let room = null;
 
     const save = () => store.set(roomId, { seat: me.seat, at: me.at, rev: game.rev, batches: game.batches });
@@ -142,7 +146,26 @@
       send = (data, target) => action.send(data, target ? { target } : undefined);
       action.onMessage = (data, { peerId }) => receive(data, peerId);
       room.onPeerJoin = (peerId) => send(message(), peerId);
-      room.onPeerLeave = (peerId) => { delete peers[peerId]; onStatus && onStatus(); };
+      room.onPeerLeave = (peerId) => {
+        const p = peers[peerId];
+        if (p && p.seat !== null && hovers[p.seat]) {
+          delete hovers[p.seat];
+          onHover && onHover();
+        }
+        delete peers[peerId];
+        onStatus && onStatus();
+      };
+      // Where a player's pointer is, so the others can see what they're looking at.
+      // Not part of the game record; only players send it.
+      const hover = room.makeAction('hover');
+      sendHover = (k) => hover.send({ k });
+      hover.onMessage = (data, { peerId }) => {
+        const p = peers[peerId];
+        if (!p || p.seat === null || !data) return;
+        if (typeof data.k === 'string') hovers[p.seat] = data.k;
+        else delete hovers[p.seat];
+        onHover && onHover();
+      };
       on.status = 'ready';
       onStatus && onStatus();
     }).catch((e) => {
@@ -150,6 +173,14 @@
       on.error = `Couldn't load the networking library (${e.message}). Are you offline?`;
       onStatus && onStatus();
     });
+
+    // How many people are here, me included: { playing, watching }.
+    on.counts = () => {
+      const all = Object.values(peers).concat(me);
+      const playing = all.filter((p) => p.seat !== null).length;
+      return { playing, watching: all.length - playing };
+    };
+    on.hover = (k) => { if (me.seat !== null) sendHover(k || null); };
 
     // The other player, if they're here right now.
     on.opponent = () => (me.seat === null ? null : Object.values(peers).find((p) => p.seat === 1 - me.seat) || null);

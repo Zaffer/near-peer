@@ -33,6 +33,15 @@ How the rules got to where they are, and the changes still to consider.
 
 Newest first.
 
+### 2026-10-17 — Online: board turned round for Red, shared pointer, people count; terrain numbers back on the tiles
+- **What:** Online, Red sees the board turned round, so each player's own side is at the bottom (text and pictures stay upright).
+  Each player sees a dashed outline in the other's colour on the hex the other's pointer is over. Watchers see both, but their own pointers aren't shared.
+  It's sent on a separate channel from the game record and only when the pointer moves to another hex.
+  The online card shows "2 playing · 1 watching" (everyone connected, you included).
+  Each tile with terrain has a small label near its top showing what the terrain does to a unit on it (`+1` attack, `+1` defence, `+1` / `-1` movement),
+  on both map styles. These were taken off when the tiles became one big symbol. They're back because the hover bar alone made them easy to miss.
+- **Rules:** None.
+
 ### 2026-10-16 — Play online, peer to peer
 - **What:** **Create a game and get a link** starts an online game (`js/online.js`). The link holds a room id (`?room=…`).
   The creator plays Blue, the first to open the link plays Red, and anyone after that watches.
@@ -45,7 +54,7 @@ Newest first.
   "Random-place the rest" becomes "Place my pieces at random", because you can't place the other player's pieces.
   A reload rejoins the same game in the same seat (kept per browser tab).
 - **Rules:** None.
-- **Later:** Turn the board round for Red so their side is at the bottom. A TURN relay for players on networks that block direct connections.
+- **Later:** A TURN relay for players on networks that block direct connections.
 
 ### 2026-10-16 — Board effects; aim arrow and drag to move
 - **What:** Short effects after each action (`js/effects.js`): units slide hex to hex; on a capture every other

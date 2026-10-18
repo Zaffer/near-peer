@@ -226,3 +226,11 @@ details summary { cursor: pointer; font-weight: 600; }
 .link-row { margin: 8px 0; flex-wrap: nowrap; }
 .link { flex: 1; min-width: 0; font: inherit; font-size: 12.5px; padding: 5px 8px; border: 1px solid #cfc9bb; border-radius: 7px; background: #faf8f3; }
 .hint.bad { color: var(--hit); }
+.people { margin-left: auto; font-size: 11.5px; font-weight: 600; color: var(--muted); background: #f1efe9; padding: 1px 8px; border-radius: 999px; }
+.peer-hover { fill-opacity: .12; stroke-width: 3.5; stroke-dasharray: 8 5; stroke-linejoin: round; }
+
+/* terrain modifiers on the tiles */
+.tmods-bg { fill: #fff; fill-opacity: .9; stroke: #000; stroke-opacity: .25; stroke-width: .8; }
+.tmods-text { font-size: 10px; font-weight: 700; text-anchor: middle; }
+.tmods-text.buff { fill: var(--good); }
+.tmods-text.debuff { fill: var(--hit); }
