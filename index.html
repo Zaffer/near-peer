@@ -17,16 +17,7 @@
   <div id="menu" class="menu" hidden></div>
   <div id="toast" class="toast" hidden></div>
 
-  <!-- Plain scripts (no modules) so the game opens straight from the file system. -->
-  <script src="js/rules.js"></script>
-  <script src="js/hex.js"></script>
-  <script src="js/engine.js"></script>
-  <script src="js/icons.js"></script>
-  <script src="js/colours.js"></script>
-  <script src="js/mapview.js"></script>
-  <script src="js/unitart.js"></script>
-  <script src="js/effects.js"></script>
-  <script src="js/online.js"></script>
-  <script src="js/ui.js"></script>
+  <!-- ES modules: ui.js imports the rest. Browsers won't load modules from a file, so serve the folder (see README). -->
+  <script type="module" src="js/ui.js"></script>
 </body>
 </html>

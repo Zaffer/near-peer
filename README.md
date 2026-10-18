@@ -2,10 +2,10 @@
 
 Use strategy to defeat your opponent on the battlefield with using terrain and movement.
 A two-player hex board game where you control military troops and place fortifications.
-Plain HTML, CSS and JS, with no build step.
+Plain HTML, CSS and JS (ES modules), with no build step.
 
 ## Play
-Open `index.html` in a browser. Double-clicking the file works fine.
+Serve the folder and open it in a browser, e.g. `python3 -m http.server` and then http://localhost:8000. Browsers won't load modules from a file, so double-clicking `index.html` doesn't work. The page needs an internet connection the first time, to load [alien-signals](https://github.com/stackblitz/alien-signals) from jsDelivr.
 - `index.html?quick` skips the build phase with a random setup.
 - Keys: `E` end turn (or pass), `Z` undo, `Esc` deselect.
 - Tiles with terrain show what it does to a unit standing there (e.g. `+1` attack, `-1` movement).
@@ -19,23 +19,24 @@ Click **Create a game and get a link** in the side panel and send the link to a 
 - Red sees the board turned round, so each player's side is at the bottom.
 - Each player sees a dashed outline in the other's colour on the hex their pointer is over. The online card shows how many people are playing and watching.
 - You can only act on your own turn. Undo takes back your own move while it's still your turn, and **New game** resets it for both players.
-- To play a friend, the page has to be online (GitHub Pages or any static host works). Opened from a file, the link only works on your own computer, which is handy for testing in two tabs.
+- To play a friend, the page has to be online (GitHub Pages or any static host works). Served from your own computer, the link only works there, which is handy for testing in two tabs.
 - Some strict networks (some offices, some mobile carriers) block direct connections. Those players would need a TURN relay server, which this doesn't set up.
 
-The rules are in [RULES.md](RULES.md). Ideas and past rule decisions are tracked in [AMENDMENTS.md](AMENDMENTS.md). Open `tests.html` to run the tests.
+The rules are in [RULES.md](RULES.md). Ideas and past rule decisions are tracked in [AMENDMENTS.md](AMENDMENTS.md). Open `tests.html` (served, like the game) to run the tests.
 
 ## Changing the rules
 | File | What lives there |
 |------|------------------|
 | `js/rules.js` | Every number, zone, terrain effect, option switch, and the small rule functions (hit check, movement maths, stacking). **Tune the game here.** |
 | `js/engine.js` | Pure game logic: `apply(state, action)`. Every legality check is in one action handler. `assault()` works out a combined attack. |
-| `js/ui.js` | SVG board and side panel. It only ever asks the engine what's legal. |
+| `js/ui.js` | SVG board and side panel. It only ever asks the engine what's legal. What's on screen lives in signals, and each part of the page is an effect that redraws itself when the signals it read change. |
+| `js/signals.js` | Signals, computeds and effects from alien-signals (version pinned here), plus `batch` and `untracked`. |
 | `js/hex.js` | Hex grid maths. |
 | `js/colours.js` | Terrain colours. Purely visual. |
 | `js/mapview.js` | The "Graphic" map style: blended terrain, joined-up roads, river between the zones. Purely visual. |
 | `js/unitart.js` | The "Graphic" unit style: illustrated tokens (infantry, tank, truck-mounted howitzer, special forces, general). Purely visual. |
 | `js/effects.js` | Short animations after each action: units sliding between hexes, attack streaks and captures, minefield blasts, river splashes, taking the capital, whose turn it is. Purely visual. |
 | `js/icons.js` | One SVG icon per unit and terrain type, using the same type ids as `rules.js`. |
-| `js/online.js` | Online play: joins a peer-to-peer room, sends the game record, replays the other side's moves through the engine, settles who sits where. |
+| `js/online.js` | Online play: joins a peer-to-peer room, sends the game record, replays the other side's moves through the engine, settles who sits where. The room's state, seat, status and peers are signals. |
 | `tests/rules.test.js` | One test per rule. Update the matching test when you change a rule on purpose. |
 | `tests/online.test.js` | Online play without the network: replaying the game record, who may undo, who gets which seat. |

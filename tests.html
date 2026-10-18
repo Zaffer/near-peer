@@ -15,14 +15,11 @@
   <div id="summary"></div>
   <ul id="results"></ul>
 
-  <script src="js/rules.js"></script>
-  <script src="js/hex.js"></script>
-  <script src="js/engine.js"></script>
-  <script src="tests/rules.test.js"></script>
-  <script src="js/online.js"></script>
-  <script src="tests/online.test.js"></script>
-  <script>
-    const results = window.NP_TEST_RESULTS;
+  <script type="module">
+    import { results as rules } from './tests/rules.test.js';
+    import { results as online } from './tests/online.test.js';
+
+    const results = rules.concat(online);
     const failed = results.filter((r) => !r.ok);
     document.getElementById('summary').innerHTML =
       `<p class="${failed.length ? 'fail' : 'pass'}">${results.length - failed.length}/${results.length} passed</p>`;
