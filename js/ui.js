@@ -940,16 +940,18 @@ function renderPanel() {
   const st = ui.state();
   const sections = [
     h('header', { class: 'title' }, h('h1', {}, 'Near Peer')),
+    // What's happening and what you can do now…
     statusCard(st),
-    onlineCard(st),
     st.phase === 'over' ? winCard(st) : null,
     buildKind(st) ? buildCard(st) : null,
     st.phase === 'battle' ? actionsCard(st) : null,
     st.phase === 'battle' || st.phase === 'over' ? selectedCard(st) : null,
-    controlsCard(),
     armiesCard(st),
-    logCard(st),
+    // …then the session and settings, then reference.
+    onlineCard(st),
+    controlsCard(),
     rulesCard(st),
+    logCard(st),
   ];
   $('panel').replaceChildren(...sections.filter(Boolean));
 }
@@ -997,8 +999,12 @@ function buildCard(st) {
         h('span', { class: 'pick-desc' }, desc(item))))),
     h('p', { class: 'hint' }, 'Pick a piece, then click a highlighted hex in your zone. ',
       `${P(1 - st.current).name} has ${opp} left.`),
-    ui.online() ? autoPlaceButton() : ui.game().vs ? null : h('button', { onclick: randomFill }, 'Random-place the rest of this phase'));
+    h('div', { class: 'row' },
+      undoButton(),
+      ui.online() ? autoPlaceButton() : ui.game().vs ? null : h('button', { onclick: randomFill }, 'Random-place the rest of this phase')));
 }
+
+const undoButton = () => h('button', { disabled: !ui.game().canUndo(), onclick: undo }, 'Undo (Z)');
 
 function autoPlaceButton() {
   if (!ui.online() || ui.online().seat() === null) return null;
@@ -1015,10 +1021,9 @@ function actionsCard(st) {
     h('h2', {}, 'This turn'),
     h('div', { class: 'pills' }, h('span', { class: `pill${ts.moveDone ? ' done' : ''}` }, `Move: ${move}`)),
     h('div', { class: 'row' },
-      h('button', { class: 'primary', disabled: !myTurn(st), onclick: () => commit({ type: 'endTurn' }) }, ts.move || ts.moveDone ? 'End turn (E)' : 'Pass (E)')),
-    myTurn(st) ? null : h('p', { class: 'hint' }, `${waitText()}.`),
-    h('p', { class: 'hint' }, 'Move one unit. Stepping onto an enemy captures it if the attack of all your units in range of it adds up to its defence. ',
-      'A dashed ring marks enemies you can capture. Hover any unit to see the attack against it.'));
+      h('button', { class: 'primary', disabled: !myTurn(st), onclick: () => commit({ type: 'endTurn' }) }, ts.move || ts.moveDone ? 'End turn (E)' : 'Pass (E)'),
+      undoButton()),
+    h('p', { class: 'hint' }, myTurn(st) ? 'Move one unit, then end your turn. Hover any unit to see the attack against it.' : `${waitText()}.`));
 }
 
 function selectedCard(st) {
@@ -1098,8 +1103,8 @@ function controlsCard() {
     h('input', { type: 'checkbox', checked: ui.settings[key](), onchange: (e) => ui.settings[key](e.target.checked) }),
     label);
   return h('section', { class: 'card' },
+    h('h2', {}, 'Settings'),
     h('div', { class: 'row' },
-      h('button', { disabled: !ui.game().canUndo(), onclick: undo }, 'Undo (Z)'),
       h('button', {
         disabled: ui.online() && ui.online().seat() === null,
         onclick: () => { if (ui.history().length === 0 || confirm(ui.online() ? 'Start a new game for both players?' : 'Start a new game?')) newGame(); },
