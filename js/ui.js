@@ -30,6 +30,8 @@
     drag: null, // { id, pointerId, x, y, active } while dragging a unit
     plans: {}, // "unitId>hex" → planned route, for the current state
     rulesOpen: false,
+    online: null, // the online game (online.js) while playing someone over the network
+    autoPlace: false, // online: place my build pieces at random
     settings: { autoEnd: true, threats: false, coords: false,
       // How the board and units are drawn: 'symbols' (flat, schematic) or 'graphic' (illustrated).
       mapStyle: store.get('map-style') === 'symbols' ? 'symbols' : 'graphic',
@@ -118,6 +120,8 @@
   // An enemy of the player to move that their combined attack beats right now.
   const capturable = (st, u) => st.phase === 'battle' && u.player !== st.current && E.assault(st, u.id).beats;
   const unitName = (st, id) => R.units[st.units[id].type].name;
+  // Offline, whoever is to play may act. Online, only when it's your seat's turn.
+  const myTurn = (st) => !ui.online || ui.online.isMyTurn(st);
 
   function toast(msg) {
     const t = $('toast');
@@ -130,8 +134,14 @@
   // ---------------------------------------------------------------- state changes
 
   function newGame() {
-    ui.state = E.newGame();
-    ui.history = [];
+    if (ui.online) {
+      ui.online.reset();
+      ui.state = ui.online.state;
+      ui.history = ui.online.history;
+    } else {
+      ui.state = E.newGame();
+      ui.history = [];
+    }
     ui.selected = null;
     ui.choice = null;
     syncChoice();
@@ -139,28 +149,42 @@
   }
 
   // One action, or a list of them (a route of steps) that undo treats as one.
+  // Online, the list sent to the other player includes any automatic end of turn,
+  // so their "auto-end" setting can't make the games differ.
   function commit(action) {
     const actions = [].concat(action);
     const prev = ui.state;
+    if (!myTurn(prev)) {
+      toast(waitText());
+      return false;
+    }
     let next = prev;
     try {
       for (const a of actions) next = E.apply(next, a);
       if (ui.settings.autoEnd && next.phase === 'battle' && actions[0].type !== 'endTurn' && !E.hasAnyAction(next)) {
-        next = E.apply(next, { type: 'endTurn', auto: true });
+        const end = { type: 'endTurn', auto: true };
+        next = E.apply(next, end);
+        actions.push(end);
       }
     } catch (e) {
       toast(e.message);
       return false;
     }
+    if (ui.online) ui.online.play(actions, next);
     ui.history.push(prev);
     ui.state = next;
+    show(prev, next, actions);
+    return true;
+  }
+
+  // Redraw after the state changed from prev to next (by `actions`, which are animated if given).
+  function show(prev, next, actions) {
     if (next.current !== prev.current || next.phase !== prev.phase) ui.selected = null;
     if (!liveUnit(ui.selected)) ui.selected = null;
     syncChoice();
     const before = ui.unitXY;
     render();
-    playEffects(prev, next, actions, before);
-    return true;
+    if (actions) playEffects(prev, next, actions, before);
   }
 
   function playEffects(prev, next, actions, before) {
@@ -177,8 +201,15 @@
   }
 
   function undo() {
-    if (!ui.history.length) return;
-    ui.state = ui.history.pop();
+    if (ui.online) {
+      if (!ui.online.canUndo()) return;
+      ui.online.undo();
+      ui.state = ui.online.state;
+      ui.history = ui.online.history;
+    } else {
+      if (!ui.history.length) return;
+      ui.state = ui.history.pop();
+    }
     if (!liveUnit(ui.selected)) ui.selected = null;
     syncChoice();
     render();
@@ -208,6 +239,81 @@
     }
     const sup = ui.state.supply[ui.state.current][kind];
     if (!sup.includes(ui.choice)) ui.choice = sup[0] || null;
+  }
+
+  // ---------------------------------------------------------------- online
+
+  // Start (create = true) or rejoin an online game. The room id goes in the address,
+  // so the address is the link to send the other player.
+  function goOnline(roomId, create) {
+    if (ui.online) ui.online.leave();
+    const url = new URL(location.href);
+    url.searchParams.delete('quick');
+    url.searchParams.set('room', roomId);
+    window.history.replaceState(null, '', url);
+    ui.online = window.NP_ONLINE.join(roomId, {
+      create,
+      onChange: onRemoteChange,
+      onStatus: () => { render(); autoPlace(); },
+    });
+    ui.state = ui.online.state;
+    ui.history = ui.online.history;
+    ui.selected = null;
+    ui.autoPlace = false;
+    syncChoice();
+    render();
+  }
+
+  function goOffline() {
+    ui.online.leave();
+    ui.online = null;
+    const url = new URL(location.href);
+    url.searchParams.delete('room');
+    window.history.replaceState(null, '', url);
+    newGame();
+  }
+
+  // The other side moved, took a move back or started a new game.
+  function onRemoteChange({ state, history, prev, batch }) {
+    hideMenu();
+    ui.state = state;
+    ui.history = history;
+    show(prev, state, batch && batch.actions);
+    autoPlace();
+  }
+
+  // Why you can't act right now (online).
+  function waitText() {
+    const o = ui.online;
+    const st = ui.state;
+    if (o.seat === null) return 'You are watching this game';
+    if (!o.opponent()) return `Waiting for ${P(1 - o.seat).name} to join`;
+    if (st.phase === 'over') return 'The game is over';
+    return `Waiting for ${P(st.current).name} to play`;
+  }
+
+  // Online stand-in for "Random-place the rest": while switched on, one of your
+  // pieces is placed at random each time it's your turn to build.
+  function autoPlace() {
+    const st = ui.state;
+    if (!ui.online || !buildKind(st)) {
+      ui.autoPlace = false;
+      return;
+    }
+    if (!ui.autoPlace || !myTurn(st)) return;
+    clearTimeout(autoPlace.timer);
+    autoPlace.timer = setTimeout(() => {
+      if (ui.state !== st || !ui.autoPlace || !myTurn(st)) return;
+      const opts = E.legalPlacements(st);
+      if (opts.length) commit(opts[Math.floor(Math.random() * opts.length)]);
+      autoPlace();
+    }, 250);
+  }
+
+  function copyLink(link) {
+    const done = () => toast('Link copied');
+    if (navigator.clipboard) navigator.clipboard.writeText(link).then(done, () => toast('Select the link and copy it'));
+    else toast('Select the link and copy it');
   }
 
   // ---------------------------------------------------------------- moving
@@ -251,7 +357,7 @@
   // Can this unit start or carry on the move this turn?
   function canAct(st, u) {
     const ts = st.turnState;
-    return !!u && st.phase === 'battle' && u.player === st.current && !ts.moveDone && (!ts.move || ts.move.unitId === u.id);
+    return !!u && st.phase === 'battle' && u.player === st.current && myTurn(st) && !ts.moveDone && (!ts.move || ts.move.unitId === u.id);
   }
 
   // Route to a hex plus what it captures, cached until the state changes.
@@ -288,6 +394,10 @@
     const st = ui.state;
     const kind = buildKind(st);
     if (kind) {
+      if (!myTurn(st)) {
+        toast(waitText());
+        return;
+      }
       if (!ui.choice) return;
       const a = E.placeAction(kind, ui.choice, k);
       const why = E.whyIllegal(st, a);
@@ -298,7 +408,7 @@
 
     const here = E.unitsAt(st, k);
     const sel = liveUnit(ui.selected);
-    const mine = sel && st.phase === 'battle' && sel.player === st.current ? sel : null;
+    const mine = sel && st.phase === 'battle' && sel.player === st.current && myTurn(st) ? sel : null;
     const items = [];
     if (mine) {
       if (k === mine.hex) {
@@ -513,7 +623,7 @@
     over.replaceChildren();
 
     const kind = buildKind(st);
-    if (kind && ui.choice) {
+    if (kind && ui.choice && myTurn(st)) {
       for (const k of Object.keys(st.hexes)) {
         if (E.isLegal(st, E.placeAction(kind, ui.choice, k))) {
           svg('polygon', { points: points(k, SIZE - 5), class: 'place-target', stroke: P(st.current).color }, under);
@@ -776,6 +886,7 @@
     const sections = [
       h('header', { class: 'title' }, h('h1', {}, 'Near Peer')),
       statusCard(st),
+      onlineCard(st),
       st.phase === 'over' ? winCard(st) : null,
       buildKind(st) ? buildCard(st) : null,
       st.phase === 'battle' ? actionsCard(st) : null,
@@ -793,6 +904,7 @@
     return h('section', { class: 'card status', style: `border-left-color:${st.phase === 'over' ? '#999' : P(st.current).color}` },
       h('div', { class: 'phase' }, phaseName),
       st.phase === 'over' ? null : h('div', { class: 'turn' }, chip(st.current), h('strong', {}, P(st.current).name), ' to play',
+        ui.online && ui.online.seat === st.current ? ' (you)' : null,
         st.phase === 'battle' ? h('span', { class: 'muted' }, ` · turn ${st.turn}`) : null));
   }
 
@@ -800,11 +912,16 @@
     return h('section', { class: 'card win', style: `border-color:${P(st.winner).color}` },
       h('div', { class: 'win-title' }, chip(st.winner), `${P(st.winner).name} wins!`),
       h('div', {}, `${P(st.winner).name} ${st.winReason}.`),
-      h('button', { class: 'primary', onclick: newGame }, 'New game'));
+      ui.online && ui.online.seat === null ? null : h('button', { class: 'primary', onclick: newGame }, 'New game'));
   }
 
   function buildCard(st) {
     const kind = buildKind(st);
+    if (!myTurn(st)) {
+      return h('section', { class: 'card' },
+        h('h2', {}, kind === 'terrain' ? 'Place terrain' : 'Place units'),
+        h('p', { class: 'hint' }, `${waitText()}.`), autoPlaceButton());
+    }
     const sup = st.supply[st.current][kind];
     const defs = kind === 'terrain' ? R.terrain : R.units;
     const opp = st.supply[1 - st.current][kind].length;
@@ -825,7 +942,13 @@
           h('span', { class: 'pick-desc' }, desc(item))))),
       h('p', { class: 'hint' }, 'Pick a piece, then click a highlighted hex in your zone. ',
         `${P(1 - st.current).name} has ${opp} left.`),
-      h('button', { onclick: randomFill }, 'Random-place the rest of this phase'));
+      ui.online ? autoPlaceButton() : h('button', { onclick: randomFill }, 'Random-place the rest of this phase'));
+  }
+
+  function autoPlaceButton() {
+    if (!ui.online || ui.online.seat === null) return null;
+    return h('button', { onclick: () => { ui.autoPlace = !ui.autoPlace; render(); autoPlace(); } },
+      ui.autoPlace ? 'Stop placing at random' : 'Place my pieces at random');
   }
 
   function actionsCard(st) {
@@ -837,7 +960,8 @@
       h('h2', {}, 'This turn'),
       h('div', { class: 'pills' }, h('span', { class: `pill${ts.moveDone ? ' done' : ''}` }, `Move: ${move}`)),
       h('div', { class: 'row' },
-        h('button', { class: 'primary', onclick: () => commit({ type: 'endTurn' }) }, ts.move || ts.moveDone ? 'End turn (E)' : 'Pass (E)')),
+        h('button', { class: 'primary', disabled: !myTurn(st), onclick: () => commit({ type: 'endTurn' }) }, ts.move || ts.moveDone ? 'End turn (E)' : 'Pass (E)')),
+      myTurn(st) ? null : h('p', { class: 'hint' }, `${waitText()}.`),
       h('p', { class: 'hint' }, 'Move one unit. Stepping onto an enemy captures it if the attack of all your units in range of it adds up to its defence. ',
         'A dashed ring marks enemies you can capture. Hover any unit to see the attack against it.'));
   }
@@ -857,7 +981,7 @@
       h('td', {}, h('strong', {}, sts[name].total),
         name === 'movement' && moving ? h('span', { class: 'muted' }, ` (${ts.move.remaining} left)`) : null));
 
-    const mine = st.phase === 'battle' && u.player === st.current;
+    const mine = st.phase === 'battle' && u.player === st.current && myTurn(st);
     const captures = mine ? E.captureTargets(st, u.id) : [];
     const captureBox = captures.length ? h('div', { class: 'targets' },
       h('h3', {}, 'Capturable on this hex'),
@@ -905,13 +1029,48 @@
       label);
     return h('section', { class: 'card' },
       h('div', { class: 'row' },
-        h('button', { disabled: !ui.history.length, onclick: undo }, 'Undo (Z)'),
-        h('button', { onclick: () => { if (ui.history.length === 0 || confirm('Start a new game?')) newGame(); } }, 'New game')),
+        h('button', { disabled: ui.online ? !ui.online.canUndo() : !ui.history.length, onclick: undo }, 'Undo (Z)'),
+        h('button', {
+          disabled: ui.online && ui.online.seat === null,
+          onclick: () => { if (ui.history.length === 0 || confirm(ui.online ? 'Start a new game for both players?' : 'Start a new game?')) newGame(); },
+        }, 'New game')),
       h('div', { class: 'toggles' },
         toggle('autoEnd', 'Auto-end turn when nothing is left to do'),
         toggle('threats', 'Show attack arrows on every enemy you can capture'),
         toggle('coords', 'Show hex coordinates')),
       h('div', { class: 'settings' }, styleSelect('Map', 'mapStyle', 'map-style'), styleSelect('Units', 'unitStyle', 'unit-style')));
+  }
+
+  function onlineCard() {
+    const o = ui.online;
+    if (!o) {
+      return h('section', { class: 'card' },
+        h('h2', {}, 'Play online'),
+        h('p', { class: 'hint' }, 'Play a friend in their own browser. You connect directly, peer to peer: there is no game server.'),
+        h('button', {
+          class: 'primary',
+          onclick: () => { if (ui.history.length === 0 || confirm('Leave this game and start a new one online?')) goOnline(window.NP_ONLINE.newRoomId(), true); },
+        }, 'Create a game and get a link'));
+    }
+    const link = location.href;
+    const opp = o.seat === null ? null : 1 - o.seat;
+    let who = null;
+    if (o.status === 'connecting') who = 'Connecting…';
+    else if (o.status === 'ready' && o.seat === null) who = Object.keys(o.peers).length ? 'Both seats are taken, so you are watching.' : 'Looking for the other players…';
+    else if (o.status === 'ready' && o.opponent()) who = h('span', {}, chip(opp), `${P(opp).name} is connected.`);
+    else if (o.status === 'ready') who = `Waiting for ${P(opp).name}. Send them this link:`;
+    return h('section', { class: 'card' },
+      h('h2', {}, 'Online', h('span', { class: 'muted' }, ` · room ${o.roomId}`)),
+      o.seat === null ? null : h('div', {}, 'You are ', chip(o.seat), h('strong', {}, P(o.seat).name), '.'),
+      who ? h('div', {}, who) : null,
+      h('div', { class: 'row link-row' },
+        h('input', { class: 'link', readonly: true, value: link, onfocus: (e) => e.target.select() }),
+        h('button', { onclick: () => copyLink(link) }, 'Copy')),
+      location.protocol === 'file:' ? h('p', { class: 'hint' },
+        'This page is open from a file, so the link only works on this computer. Open it in a second tab to try it. '
+        + 'To play a friend, put the folder online (GitHub Pages works).') : null,
+      o.error ? h('p', { class: 'hint bad' }, o.error) : null,
+      h('div', { class: 'row' }, h('button', { onclick: () => { if (confirm('Leave the online game?')) goOffline(); } }, 'Leave')));
   }
 
   function armiesCard(st) {
@@ -957,12 +1116,15 @@
   }
 
   // Handy from the browser console, e.g. NearPeer.ui.state or NearPeer.commit({ type: 'endTurn' }).
-  window.NearPeer = { ui, commit, undo, render, newGame, randomFill };
+  window.NearPeer = { ui, commit, undo, render, newGame, randomFill, goOnline };
 
   setupPointer();
   newGame();
+  // index.html?room=… joins (or rejoins) that online game.
   // index.html?quick skips straight to the battle with a random setup.
-  if (new URLSearchParams(location.search).has('quick')) {
+  const room = (new URLSearchParams(location.search).get('room') || '').replace(/[^a-z0-9-]/gi, '').slice(0, 40);
+  if (room) goOnline(room, false);
+  else if (new URLSearchParams(location.search).has('quick')) {
     randomFill();
     randomFill();
   }

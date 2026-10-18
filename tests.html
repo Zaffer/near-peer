@@ -11,7 +11,7 @@
   </style>
 </head>
 <body>
-  <h1>Near Peer — rule tests</h1>
+  <h1>Near Peer — tests</h1>
   <div id="summary"></div>
   <ul id="results"></ul>
 
@@ -19,6 +19,8 @@
   <script src="js/hex.js"></script>
   <script src="js/engine.js"></script>
   <script src="tests/rules.test.js"></script>
+  <script src="js/online.js"></script>
+  <script src="tests/online.test.js"></script>
   <script>
     const results = window.NP_TEST_RESULTS;
     const failed = results.filter((r) => !r.ok);

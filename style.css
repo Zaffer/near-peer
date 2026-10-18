@@ -221,3 +221,8 @@ details summary { cursor: pointer; font-weight: 600; }
 .settings { display: flex; gap: 18px; flex-wrap: wrap; }
 .setting { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; }
 .setting select { font: inherit; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--line); }
+
+/* ---- online ---- */
+.link-row { margin: 8px 0; flex-wrap: nowrap; }
+.link { flex: 1; min-width: 0; font: inherit; font-size: 12.5px; padding: 5px 8px; border: 1px solid #cfc9bb; border-radius: 7px; background: #faf8f3; }
+.hint.bad { color: var(--hit); }

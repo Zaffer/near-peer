@@ -33,6 +33,20 @@ How the rules got to where they are, and the changes still to consider.
 
 Newest first.
 
+### 2026-10-16 — Play online, peer to peer
+- **What:** **Create a game and get a link** starts an online game (`js/online.js`). The link holds a room id (`?room=…`).
+  The creator plays Blue, the first to open the link plays Red, and anyone after that watches.
+  Browsers connect directly over WebRTC through [Trystero](https://github.com/dmotz/trystero) 0.25.4, loaded from jsDelivr.
+  Public Nostr relays are used only to find each other. There is no game server.
+  Every message carries the whole game record (batches of actions, each tagged with who played it, plus a change counter).
+  Both sides replay it through the engine, so a move out of turn or against the rules is ignored, and a reconnecting player catches up.
+  A batch includes any automatic end of turn, so the two players' "auto-end" settings can't make the games differ.
+  Online, you can only act on your turn. Undo is limited to your own move while it's still your turn.
+  "Random-place the rest" becomes "Place my pieces at random", because you can't place the other player's pieces.
+  A reload rejoins the same game in the same seat (kept per browser tab).
+- **Rules:** None.
+- **Later:** Turn the board round for Red so their side is at the bottom. A TURN relay for players on networks that block direct connections.
+
 ### 2026-10-16 — Board effects; aim arrow and drag to move
 - **What:** Short effects after each action (`js/effects.js`): units slide hex to hex; on a capture every other
   unit adding to the attack fires a streak at the target and it pops; entering a minefield gives a small blast and
