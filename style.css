@@ -1,17 +1,18 @@
 :root {
-  /* Page colours as light-dark(light, dark). The theme follows the system unless the
+  /* Page colours as light-dark(light, dark), in the same warm "pastel stone" family as the
+     terrain (colours.js), never cool greys. The theme follows the system unless the
      Theme picker sets data-theme="light" or "dark" on <html>. */
   color-scheme: light dark;
-  --bg: light-dark(#f6f3ec, #15181c);
-  --card: light-dark(#ffffff, #1f2328);
-  --ink: light-dark(#1f2328, #e6e3dc);
-  --muted: light-dark(#6b7280, #9aa1ab);
-  --line: light-dark(#e5e1d8, #343a42);
-  --edge: light-dark(#cfc9bb, #4a515a);         /* buttons, inputs, menus */
-  --raised: light-dark(#ffffff, #282d33);       /* button face */
-  --hover: light-dark(#f3f0e8, #323840);
-  --soft: light-dark(#f1efe9, #2c3238);         /* small tags, code */
-  --field: light-dark(#faf8f3, #181b1f);        /* read-only text fields */
+  --bg: light-dark(#f6f3ec, #171513);
+  --card: light-dark(#ffffff, #211f1c);
+  --ink: light-dark(#26231f, #ebe5da);
+  --muted: light-dark(#776f63, #a39b8e);
+  --line: light-dark(#e5e1d8, #38342f);
+  --edge: light-dark(#cfc9bb, #4d4840);         /* buttons, inputs, menus */
+  --raised: light-dark(#ffffff, #2a2723);       /* button face */
+  --hover: light-dark(#f3f0e8, #35312c);
+  --soft: light-dark(#f1efe9, #302c28);         /* small tags, code */
+  --field: light-dark(#faf8f3, #14120f);        /* read-only text fields */
   --picked: light-dark(#fffbea, #3a3418);
   --row-on: light-dark(#fff4c2, #4a3f12);
   --pill: light-dark(#dcfce7, #163a24);
@@ -24,7 +25,7 @@
   /* The board keeps the same colours in both themes: its art sits on its own dark table. */
   --hit: #b91c1c;
   --danger: #c026d3;   /* capturable / attack that would capture */
-  --table: #2b333c;    /* board background, also the gap between tiles */
+  --table: #262320;    /* board background, also the gap between tiles: warm charcoal, dark enough that minefields stand out */
   --good: #15803d;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   color: var(--ink);
@@ -159,7 +160,7 @@ button {
 button:hover:not(:disabled) { background: var(--hover); }
 button:disabled { opacity: .45; cursor: default; }
 button.primary { background: var(--ink); color: var(--card); border-color: var(--ink); }
-button.primary:hover:not(:disabled) { background: light-dark(#333, #fff); }
+button.primary:hover:not(:disabled) { background: light-dark(#3a3530, #fff); }
 
 .picks { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 6px; }
 .pick { display: flex; flex-direction: column; align-items: flex-start; border-width: 2px; }
@@ -192,8 +193,8 @@ table.stats, table.ref { border-collapse: collapse; margin-top: 6px; width: 100%
 .log-row { padding: 2px 0; border-bottom: 1px dashed var(--line); display: flex; align-items: baseline; gap: 2px; }
 
 details summary { cursor: pointer; font-weight: 600; }
-.opts { padding-left: 18px; margin: 8px 0 0; font-size: 12.5px; }
-.opts code { font-size: 11px; background: var(--soft); padding: 0 4px; border-radius: 3px; }
+details[open] > summary { margin-bottom: 8px; }
+.rules p { margin: 0 0 6px; font-size: 12.5px; line-height: 1.45; }
 
 .menu {
   position: fixed;

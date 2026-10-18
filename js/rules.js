@@ -71,16 +71,6 @@ const RULES = {
     winByElimination: true,
   },
 
-  optionNotes: {
-    captureEndsMove: 'Defeating a unit ends the capturing unit\'s move. (Later idea; off.)',
-    roadBonusOncePerHexPerMove: 'Each road gives its extra step at most once per move.',
-    normalUnitsCanJoinOccupiedHex: 'Units without Insurgency may move onto a hex holding a lone Insurgency unit. Off = only Insurgency units may move onto occupied hexes.',
-    allowSameHexAttack: 'A unit sharing a hex with an enemy adds its attack against that enemy.',
-    winByCapital: 'Win by occupying the enemy capital.',
-    capitalNeedsNoEnemyPresent: 'Capital only counts if no enemy unit (e.g. a covert) is on it too. Insurgency units ignore this.',
-    winByElimination: 'Win by defeating every enemy unit.',
-  },
-
   // ---- The small rule functions. Change behaviour here. ----
   logic: {
     // Does the combined attack of every unit in range capture the target?

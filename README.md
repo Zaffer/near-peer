@@ -14,16 +14,12 @@ Serve the folder and open it in a browser, e.g. `python3 -m http.server` and the
 - To move, select a unit and click where it should go, or drag it there (works on touch screens). An arrow shows where it's heading: in your colour if it can get there, magenta if it would capture, grey if it can't. A hex more than one step away is reached by the shortest route that doesn't fight on the way.
 
 ## Play online
-Click **Create a game and get a link** in the side panel and send the link to a friend. The first person to open it plays Red; anyone after that watches.
-- The two browsers connect directly (WebRTC, peer to peer). No game server is involved. [Trystero](https://github.com/dmotz/trystero) uses public Nostr relays only to swap connection details, then every move goes straight between the players.
-- Each move sends the whole game record, and both browsers replay it through the rules engine. So neither side can make an illegal move, and a player who reloads or drops out is brought back up to date.
-- Red sees the board turned round, so each player's side is at the bottom.
-- Each player sees a dashed outline in the other's colour on the hex their pointer is over. The online card shows how many people are playing and watching.
-- You can only act on your own turn. Undo takes back your own move while it's still your turn, and **New game** resets it for both players.
-- To play a friend, the page has to be online (GitHub Pages or any static host works). Served from your own computer, the link only works there, which is handy for testing in two tabs.
-- Some strict networks (some offices, some mobile carriers) block direct connections. Those players would need a TURN relay server, which this doesn't set up.
+Click **Create a game and get a link** and send the link to a friend. They play Red, and anyone else who opens it watches.
+- Moves go straight between the two browsers ([Trystero](https://github.com/dmotz/trystero), WebRTC). There's no game server, and both browsers check every move against the rules.
+- To play someone on another computer, host the folder online (e.g. GitHub Pages). A link from `localhost` only works on your own machine, which is handy for testing in two tabs.
+- Some strict office or mobile networks block direct connections.
 
-The rules are in [RULES.md](RULES.md). Ideas and past rule decisions are tracked in [AMENDMENTS.md](AMENDMENTS.md). Open `tests.html` (served, like the game) to run the tests.
+The rules are in [RULES.md](RULES.md). Ideas and past rule decisions are tracked in [AMENDMENTS.md](AMENDMENTS.md). The unit-merge design (31 units) is in [UNITS.md](UNITS.md). Open `tests.html` (served, like the game) to run the tests.
 
 ## Roadmap
 

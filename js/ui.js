@@ -16,6 +16,7 @@ import * as MapView from './mapview.js';
 import * as UnitArt from './unitart.js';
 import * as FX from './effects.js';
 import * as Online from './online.js';
+import { claudeGame } from './versus.js';
 import { signal, computed, effect, batch, untracked } from './signals.js';
 
 const SIZE = 54;
@@ -90,6 +91,7 @@ ui.plans = computed(() => (ui.state(), new Map())); // "unitId>hex" → planned 
 let sharedHover = null; // online: the hex we last told the others our pointer is over
 let suppressClick = false;
 let rulesOpen = false;
+let logOpen = true;
 let layers = null; // the board's <g> layers, made once in mount()
 let animated = null; // the last change whose effects were played
 
@@ -276,6 +278,7 @@ function goOffline() {
 function waitText() {
   const o = ui.online();
   const st = ui.state();
+  if (!o) return st.phase === 'over' ? 'The game is over' : 'Claude is thinking'; // ?vs=claude
   if (o.seat() === null) return 'You are watching this game';
   if (!o.opponent()) return `Waiting for ${P(1 - o.seat()).name} to join`;
   if (st.phase === 'over') return 'The game is over';
@@ -994,7 +997,7 @@ function buildCard(st) {
         h('span', { class: 'pick-desc' }, desc(item))))),
     h('p', { class: 'hint' }, 'Pick a piece, then click a highlighted hex in your zone. ',
       `${P(1 - st.current).name} has ${opp} left.`),
-    ui.online() ? autoPlaceButton() : h('button', { onclick: randomFill }, 'Random-place the rest of this phase'));
+    ui.online() ? autoPlaceButton() : ui.game().vs ? null : h('button', { onclick: randomFill }, 'Random-place the rest of this phase'));
 }
 
 function autoPlaceButton() {
@@ -1113,7 +1116,6 @@ function onlineCard() {
   if (!o) {
     return h('section', { class: 'card' },
       h('h2', {}, 'Play online'),
-      h('p', { class: 'hint' }, 'Play a friend in their own browser. You connect directly, peer to peer: there is no game server.'),
       h('button', {
         class: 'primary',
         onclick: () => { if (ui.history().length === 0 || confirm('Leave this game and start a new one online?')) goOnline(Online.newRoomId(), true); },
@@ -1123,23 +1125,22 @@ function onlineCard() {
   const seat = o.seat();
   const status = o.status();
   const opp = seat === null ? null : 1 - seat;
+  // One line: who you are, and who you're waiting for.
   let who = null;
   if (status === 'connecting') who = 'Connecting…';
-  else if (status === 'ready' && seat === null) who = Object.keys(o.peers()).length ? 'Both seats are taken, so you are watching.' : 'Looking for the other players…';
-  else if (status === 'ready' && o.opponent()) who = h('span', {}, chip(opp), `${P(opp).name} is connected.`);
-  else if (status === 'ready') who = `Waiting for ${P(opp).name}. Send them this link:`;
+  else if (status === 'ready' && seat === null) who = Object.keys(o.peers()).length ? 'Watching' : 'Looking for players…';
+  else if (status === 'ready' && seat !== null) {
+    who = h('span', {}, 'You are ', chip(seat), h('strong', {}, P(seat).name),
+      o.opponent() ? null : h('span', { class: 'muted' }, ` · waiting for ${P(opp).name}, send them the link`));
+  }
   return h('section', { class: 'card' },
-    h('h2', {}, 'Online', h('span', { class: 'muted' }, ` · room ${o.roomId}`), peopleTag(o)),
-    seat === null ? null : h('div', {}, 'You are ', chip(seat), h('strong', {}, P(seat).name), '.'),
+    h('h2', {}, 'Online', peopleTag(o)),
     who ? h('div', {}, who) : null,
     h('div', { class: 'row link-row' },
       h('input', { class: 'link', readonly: true, value: link, onfocus: (e) => e.target.select() }),
-      h('button', { onclick: () => copyLink(link) }, 'Copy')),
-    ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname) ? h('p', { class: 'hint' },
-      'This page is served from this computer, so the link only works here. Open it in a second tab to try it. '
-      + 'To play a friend, put the folder online (GitHub Pages works).') : null,
-    o.error() ? h('p', { class: 'hint bad' }, o.error()) : null,
-    h('div', { class: 'row' }, h('button', { onclick: () => { if (confirm('Leave the online game?')) goOffline(); } }, 'Leave')));
+      h('button', { onclick: () => copyLink(link) }, 'Copy'),
+      h('button', { onclick: () => { if (confirm('Leave the online game?')) goOffline(); } }, 'Leave')),
+    o.error() ? h('p', { class: 'hint bad' }, o.error()) : null);
 }
 
 // "2 playing · 1 watching": everyone connected to this game, you included.
@@ -1166,16 +1167,43 @@ function armiesCard(st) {
 }
 
 function logCard(st) {
-  return h('section', { class: 'card' },
-    h('h2', {}, 'Log'),
+  const d = h('details', { class: 'card', open: logOpen },
+    h('summary', {}, 'Log'),
     h('div', { class: 'log' }, st.log.slice(-80).reverse().map((e) =>
       h('div', { class: 'log-row' }, e.p === null ? null : chip(e.p),
         e.p === null ? h('em', {}, e.text) : `${P(e.p).name} ${e.text}`))));
+  d.addEventListener('toggle', () => { logOpen = d.open; });
+  return d;
 }
 
+// The rules in brief, then the unit and terrain tables. Numbers come from rules.js and the
+// sentences follow its option switches, so this stays true when the game is tuned.
 function rulesCard(st) {
+  const o = st.options;
+  const covert = R.units.covert.name;
+  const win = [
+    o.winByCapital && (o.capitalNeedsNoEnemyPresent
+      ? `stand on the enemy capital with no enemy unit on it (a ${covert} wins even if there is one)`
+      : 'stand on the enemy capital'),
+    o.winByElimination && 'defeat every enemy unit',
+  ].filter(Boolean).join(', or ');
+  const rules = [
+    ['Setup', `${P(R.firstPlayer).name} goes first. Take turns placing one terrain tile, then one unit, in your own tinted zone.`],
+    ['Your turn', 'Move one unit, one hex per step, up to its movement, or pass. '
+      + `Landing on a road gives at least one more step${o.roadBonusOncePerHexPerMove ? ' (once per road each move)' : ''}. `
+      + 'Starting on or entering a minefield costs 1 movement.'],
+    ['Capturing', 'There is no attack action. Each enemy is under the combined attack of all your units in range of it '
+      + '(counted in hexes, no line of sight needed), terrain included. Step onto an enemy whose defence is no more than that '
+      + 'and it is captured; a dashed magenta ring marks the ones you can take. '
+      + (o.captureEndsMove ? 'Capturing ends the move.' : 'Capturing doesn\'t end the move, so one unit can capture several times in a turn.')],
+    ['Sharing hexes', `A hex holds one unit, or two if one is a ${covert}. A ${covert} can also pass through occupied hexes. `
+      + (o.normalUnitsCanJoinOccupiedHex ? '' : `Only a ${covert} can move onto an occupied hex. `)
+      + 'A unit sharing a hex with an enemy can capture it without moving.'],
+    ['Winning', `${win[0].toUpperCase()}${win.slice(1)}.`],
+  ];
   const d = h('details', { class: 'card', open: rulesOpen },
-    h('summary', {}, 'Rules reference (from rules.js)'),
+    h('summary', {}, 'Rules'),
+    h('div', { class: 'rules' }, rules.map(([title, text]) => h('p', {}, h('strong', {}, `${title}. `), text))),
     h('table', { class: 'ref' },
       h('tr', {}, h('th', {}, 'Unit'), STAT_ORDER.map((k) => h('th', {}, statLabel(k, 13))), h('th', {}, 'Skill')),
       Object.entries(R.units).map(([id, u]) => h('tr', {},
@@ -1185,9 +1213,7 @@ function rulesCard(st) {
     h('table', { class: 'ref' },
       h('tr', {}, h('th', {}, 'Terrain'), h('th', {}, 'Effect')),
       Object.entries(R.terrain).filter(([, t]) => Object.keys(t.mods).length).map(([id, t]) =>
-        h('tr', {}, h('td', { class: 'with-icon' }, iconEl('terrain', id), t.name), h('td', {}, modsEl(t.mods))))),
-    h('ul', { class: 'opts' }, Object.entries(st.options).map(([k, v]) =>
-      h('li', {}, h('code', {}, v ? 'on ' : 'off'), ' ', R.optionNotes[k] || k))));
+        h('tr', {}, h('td', { class: 'with-icon' }, iconEl('terrain', id), t.name), h('td', {}, modsEl(t.mods))))));
   d.addEventListener('toggle', () => { rulesOpen = d.open; });
   return d;
 }
@@ -1200,6 +1226,7 @@ setupPointer();
 // index.html?quick skips straight to the battle with a random setup.
 const room = (new URLSearchParams(location.search).get('room') || '').replace(/[^a-z0-9-]/gi, '').slice(0, 40);
 if (room) goOnline(room, false);
+else if (new URLSearchParams(location.search).get('vs') === 'claude') ui.game(claudeGame()); // temporary, see tools/bridge.py
 else if (new URLSearchParams(location.search).has('quick')) {
   randomFill();
   randomFill();

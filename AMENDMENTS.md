@@ -22,6 +22,7 @@ How the rules got to where they are, and the changes still to consider.
 | A4 | **Capturing ends the move.** Defeating a unit ends the capturing unit's move. | Play discussion, 2026-10-15 | `captureEndsMove` | Currently off: the capturing unit can keep moving and still gets road bonuses. |
 | A5 | **Only coverts can share hexes and block.** Normal units can't move onto another unit's hex at all, so a covert sitting alone also blocks normal units. | Play discussion, 2026-10-15 | `normalUnitsCanJoinOccupiedHex: false` | Currently a normal unit may move onto a lone covert. |
 | A7 | **Limit captures per turn** (e.g. one). | Play discussion, 2026-10-16 | — | Currently unlimited ("wild west"): one move can capture as many units as it can reach and beat. Revisit if chain captures swing games too hard. A4 (`captureEndsMove`) is the blunter version. |
+| A8 | **Merging units.** Any set of 2+ different units merges into one new unit (31 in total), with names and starting ideas in [UNITS.md](UNITS.md). | Design session, 2026-10-18 | — | Names locked in, mechanics next. Open questions are listed in UNITS.md (summed range and movement, splitting back up, renaming the base units). |
 
 ## Not rules, but later
 - Polish pass on the interface.
@@ -37,6 +38,8 @@ Newest first.
 - **What:** The page has a dark theme. It follows the system setting by default, and the **Theme** picker (Auto / Light / Dark, next to Map and Units) can override that. The choice is remembered in the browser.
   The side panel, hover bar, buttons, menus and toasts change. The board stays the same in both themes, because it already sits on its own dark table.
   Each page colour is a `light-dark()` pair in `style.css`, so a new colour only needs adding in one place.
+  The board's table colour changed from a cool blue slate (`#2b333c`) to a warm charcoal (`#262320`), and the page's greys (both themes) are warm too,
+  so everything matches the "pastel stone" terrain. The table is dark enough that minefield tiles still stand out against it.
 - **Rules:** None.
 
 ### 2026-10-17 — Online: board turned round for Red, shared pointer, people count; terrain numbers back on the tiles
