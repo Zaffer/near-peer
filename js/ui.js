@@ -1,5 +1,5 @@
 /*
- * Near Peer v2 — browser UI.
+ * Near Peer — browser UI.
  * Reads state from the engine and sends it actions; it never decides what is
  * legal on its own.
  *
@@ -103,7 +103,6 @@ ui.plans = computed(() => (ui.state(), new Map())); // "unitId>hex" → planned 
 let sharedHover = null; // online: the hex we last told the others our pointer is over
 let suppressClick = false;
 let rulesOpen = false;
-let unitsOpen = false;
 let logOpen = true;
 let layers = null; // the board's <g> layers, made once in mount()
 let animated = null; // the last change whose effects were played
@@ -157,7 +156,7 @@ function h(tag, props, ...kids) {
     else if (v === true) n.setAttribute(k, '');
     else if (v !== false && v != null) n.setAttribute(k, v);
   }
-  for (const kid of kids.flat()) {
+  for (const kid of kids.flat(Infinity)) {
     if (kid == null || kid === false) continue;
     n.append(kid instanceof Node ? kid : String(kid));
   }
@@ -196,7 +195,6 @@ const unitLabel = (u) => `${P(u.player).name} ${R.units[u.type].name}`;
 const unitMini = (type, p) => h('span', { class: `mini${R.units[type].tier > 1 ? ' merged' : ''}`, style: `background:${P(p).color}` },
   iconEl('units', type, '#fff', 12) || R.units[type].short);
 // "Rifle Squad + Armoured Carrier" for a list of base units.
-const partNames = (parts) => parts.map((b) => R.units[b].name).join(' + ');
 // What a unit of type `a` merging with a unit of type `b` becomes.
 const mergedName = (a, b) => R.units[R.typeOf(R.units[a].parts.concat(R.units[b].parts))].name;
 const buildKind = (st) => (st.phase === 'terrain' ? 'terrain' : st.phase === 'units' ? 'units' : null);
@@ -524,7 +522,9 @@ document.addEventListener('mousedown', (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (e.target.matches('input, textarea, select') || e.ctrlKey && e.key !== 'z' || e.metaKey && e.key !== 'z') return;
-  if (e.key === 'Escape') {
+  if (e.key === 'Escape' && !$('sheet').hidden) {
+    openSheet(false);
+  } else if (e.key === 'Escape') {
     hideMenu();
     select(null);
   } else if (e.key === 'z' || e.key === 'u') {
@@ -551,7 +551,6 @@ function mount() {
   layers = {
     tiles: layer({}),
     under: layer(inert), // overlay below the units
-    mods: layer(inert),
     units: layer(inert),
     over: layer(inert), // overlay above the units
     fx: layer({ class: 'fx', ...inert }),
@@ -562,6 +561,8 @@ function mount() {
   effect(renderOverlay);
   effect(drawAim);
   effect(renderHoverInfo);
+  effect(renderStatus);
+  effect(renderDock);
   effect(renderPanel);
   effect(autoPlace);
   // A menu offers moves in the state it was opened in, so it goes when the state changes.
@@ -586,8 +587,8 @@ function drawDefs(defs) {
 
 function renderBoard() {
   const st = ui.state();
-  const { tiles, mods, units, hits } = layers;
-  for (const g of [tiles, mods, units, hits]) g.replaceChildren();
+  const { tiles, units, hits } = layers;
+  for (const g of [tiles, units, hits]) g.replaceChildren();
 
   const inBuild = !!buildKind(st);
   // Zones only matter while building, so only then do empty zone hexes take the player's tint.
@@ -602,7 +603,6 @@ function renderBoard() {
     const { x, y } = pos(k);
     const look = tileLook(hex);
     if (!mapView) drawTile(k, hex, t, x, y, look, groundFill(hex), tiles);
-    if (Object.keys(t.mods).length) drawTerrainMods(t.mods, x, y - SIZE * 0.61, mods);
     if (ui.settings.coords()) svgText(k, x, y + SIZE * 0.78, 'coord', tiles);
 
     // "grab": a unit here can be dragged (and the browser won't scroll the page instead).
@@ -660,20 +660,6 @@ function drawTile(k, hex, t, x, y, look, fill, tiles) {
   if (hex.terrain !== 'plain') drawIcon('terrain', hex.terrain, x, y, SIZE * 1.4, look.ink, tiles, { opacity: 0.45, width: 1.3 });
 }
 
-// "+1⚔ +1🛡" on a small pill near the top of a tile: what the terrain does to a unit standing on it.
-function drawTerrainMods(mods, cx, cy, parent) {
-  const items = Object.entries(mods);
-  const ITEM = 21;
-  const w = items.length * ITEM + 4;
-  const g = svg('g', {}, parent);
-  svg('rect', { x: cx - w / 2, y: cy - 7, width: w, height: 14, rx: 7, class: 'tmods-bg' }, g);
-  items.forEach(([k, v], i) => {
-    const ix = cx - w / 2 + 2 + i * ITEM;
-    svgText(signed(v), ix + 7, cy + 3.5, `tmods-text ${v > 0 ? 'buff' : 'debuff'}`, g);
-    drawIcon('stats', k, ix + 16, cy, 9.5, '#222', g, { width: 2.6 });
-  });
-}
-
 function drawUnit(u, cx, cy, r, parent) {
   const st = ui.state();
   const sts = E.stats(st, u.id);
@@ -706,15 +692,18 @@ function drawUnit(u, cx, cy, r, parent) {
 // Just the counter itself (no rings or stats). Effects use it too, for a unit being captured.
 function drawToken(u, cx, cy, r, g) {
   const dashed = R.logic.hasSkill(u.type, 'surveillance');
-  if (R.units[u.type].tier > 1) {
-    drawMergedToken(u, cx, cy, r, g);
-  } else if (ui.settings.unitStyle() === 'graphic' && UnitArt.has(u.type)) {
+  const tier = R.units[u.type].tier;
+  if (ui.settings.unitStyle() === 'graphic' && UnitArt.has(u.type)) {
     // Graphic units: an illustrated token (unitart.js, drawn at radius 18) inside a ring in the player's colour.
+    // Special units (4 parts) get a second ring outside it and the Nuke a third.
     const tg = svg('g', { transform: `translate(${cx},${cy}) scale(${r / 18})` }, g);
+    for (let i = tier; i >= 4; i--) svg('circle', { r: 18 + (i - 3) * 2.6, fill: 'none', stroke: P(u.player).color, 'stroke-width': 1.3 }, tg);
     svg('circle', { r: 18, fill: P(u.player).tint, filter: 'url(#lift)' }, tg);
     const art = svg('g', { 'clip-path': 'url(#unit-clip)' }, tg);
     svg('circle', { r: 17, fill: 'none', stroke: P(u.player).color, 'stroke-width': 2.4, 'stroke-dasharray': dashed ? '4 2.4' : null }, tg);
     UnitArt.draw(u.type, art, svg('g', {}, tg), P(u.player).color); // second layer: the part that sticks out
+  } else if (tier > 1) {
+    drawMergedToken(u, cx, cy, r, g);
   } else {
     svg('circle', {
       cx, cy, r, fill: P(u.player).color, stroke: '#fff', 'stroke-width': 2, filter: 'url(#lift)',
@@ -732,7 +721,7 @@ const PART_SPOTS = {
   5: { size: 9.5, at: [[0, 0], [-8, -6.5], [8, -6.5], [-8, 6.5], [8, 6.5]] },
 };
 
-// A merged unit: a counter carrying the icon of every base unit in it. Special
+// A merged unit in Symbols style (or one with no picture): a counter carrying the icon of every base unit in it. Special
 // units (4 parts) get a second ring and the Nuke (all 5) a third.
 function drawMergedToken(u, cx, cy, r, g) {
   const def = R.units[u.type];
@@ -1035,40 +1024,70 @@ function renderHoverInfo() {
 
 // ---------------------------------------------------------------- side panel
 
+// The game fills the window. Over the board's top corners: whose turn it is (renderStatus)
+// and the menu button. Under the board, the dock (renderDock): what you can do right now.
+// Everything else is in the menu (renderPanel), a full-screen sheet that scrolls.
+
+function renderStatus() {
+  const st = ui.state();
+  const over = st.phase === 'over';
+  const phase = { terrain: 'Build · terrain', units: 'Build · units', battle: `Turn ${st.turn}`, over: 'Game over' }[st.phase];
+  const el = $('status');
+  const stalemate = over && st.winner === null;
+  el.style.borderLeftColor = stalemate ? '#999' : P(over ? st.winner : st.current).color;
+  el.replaceChildren(
+    stalemate ? h('strong', {}, 'Stalemate')
+      : over ? h('strong', {}, chip(st.winner), `${P(st.winner).name} wins`)
+      : h('span', {}, chip(st.current), h('strong', {}, P(st.current).name), ' to play',
+        ui.online() && ui.online().seat() === st.current ? ' (you)' : null),
+    h('span', { class: 'muted' }, ` · ${phase}`));
+}
+
+function renderDock() {
+  const st = ui.state();
+  const o = ui.online();
+  const waiting = o && o.status() === 'ready' && o.seat() !== null && !o.opponent();
+  const play = st.phase === 'battle' || st.phase === 'over';
+  $('dock-cards').replaceChildren(...[
+    waiting ? inviteCard(o) : null,
+    st.phase === 'over' ? winCard(st) : null,
+    buildKind(st) && !waiting ? buildCard(st) : null,
+    st.phase === 'battle' && !waiting ? actionsCard(st) : null,
+    play && liveUnit(ui.selected()) ? selectedCard(st) : null,
+  ].filter(Boolean));
+}
+
+// Online, until the other player arrives: the link to send them.
+function inviteCard(o) {
+  return h('section', { class: 'card' },
+    h('h2', {}, `Waiting for ${P(1 - o.seat()).name} to join`),
+    h('div', { class: 'row' },
+      h('button', { class: 'primary', onclick: () => copyLink(location.href) }, 'Copy invite link'),
+      h('button', { onclick: () => openSheet(true) }, 'More in the menu')));
+}
+
 function renderPanel() {
   const st = ui.state();
-  const sections = [
-    h('header', { class: 'title' }, h('h1', {}, 'Near Peer ', h('span', { class: 'version' }, 'v2')),
-      h('a', { class: 'muted other-version', href: '../' }, 'Back to v1')),
-    // What's happening and what you can do now…
-    statusCard(st),
-    st.phase === 'over' ? winCard(st) : null,
-    buildKind(st) ? buildCard(st) : null,
-    st.phase === 'battle' ? actionsCard(st) : null,
-    st.phase === 'battle' || st.phase === 'over' ? selectedCard(st) : null,
-    armiesCard(st),
-    // …then the session and settings, then reference.
-    onlineCard(st),
-    controlsCard(),
-    rulesCard(st),
-    logCard(st),
-  ];
-  $('panel').replaceChildren(...sections.filter(Boolean));
+  $('panel').replaceChildren(onlineCard(st), controlsCard(), rulesCard(st), logCard(st));
 }
 
-function statusCard(st) {
-  const phaseName = { terrain: 'Build · terrain', units: 'Build · units', battle: 'Battle', over: 'Game over' }[st.phase];
-  return h('section', { class: 'card status', style: `border-left-color:${st.phase === 'over' ? '#999' : P(st.current).color}` },
-    h('div', { class: 'phase' }, phaseName),
-    st.phase === 'over' ? null : h('div', { class: 'turn' }, chip(st.current), h('strong', {}, P(st.current).name), ' to play',
-      ui.online() && ui.online().seat() === st.current ? ' (you)' : null,
-      st.phase === 'battle' ? h('span', { class: 'muted' }, ` · turn ${st.turn}`) : null));
+function openSheet(open) {
+  $('sheet').hidden = !open;
+  $('menu-open').setAttribute('aria-expanded', String(open));
+  if (open) {
+    hideMenu();
+    $('menu-close').focus();
+  }
 }
+$('menu-open').addEventListener('click', () => openSheet(true));
+$('menu-close').addEventListener('click', () => openSheet(false));
 
+// The result: who won and how, or a stalemate (winner null).
 function winCard(st) {
-  return h('section', { class: 'card win', style: `border-color:${P(st.winner).color}` },
-    h('div', { class: 'win-title' }, chip(st.winner), `${P(st.winner).name} wins!`),
-    h('div', {}, `${P(st.winner).name} ${st.winReason}.`),
+  const stalemate = st.winner === null;
+  return h('section', { class: 'card win', style: `border-color:${stalemate ? '#999' : P(st.winner).color}` },
+    stalemate ? h('div', { class: 'win-title' }, 'Stalemate') : h('div', { class: 'win-title' }, chip(st.winner), `${P(st.winner).name} wins!`),
+    h('div', {}, stalemate ? `Nobody wins: ${st.winReason}.` : `${P(st.winner).name} ${st.winReason}.`),
     ui.online() && ui.online().seat() === null ? null : h('button', { class: 'primary', onclick: newGame }, 'New game'));
 }
 
@@ -1128,18 +1147,18 @@ function actionsCard(st) {
 
 function selectedCard(st) {
   const u = liveUnit(ui.selected());
-  if (!u) return h('section', { class: 'card muted' }, 'Click a unit to see its stats and the attack against it.');
+  if (!u) return null;
   const def = R.units[u.type];
   const sts = E.stats(st, u.id);
   const terr = E.terrainAt(st, u.hex);
   const ts = st.turnState;
   const moving = ts.move && ts.move.unitId === u.id && !ts.moveDone;
-  const row = (name, label) => h('tr', {},
-    h('td', {}, label),
-    h('td', {}, sts[name].base),
-    h('td', { class: sts[name].mod > 0 ? 'buff' : sts[name].mod < 0 ? 'debuff' : 'muted' }, sts[name].mod ? signed(sts[name].mod) : '–'),
-    h('td', {}, h('strong', {}, sts[name].total),
-      name === 'movement' && moving ? h('span', { class: 'muted' }, ` (${ts.move.remaining} left)`) : null));
+  // Each stat as it stands now: green or red where terrain changes it (the tooltip has the sum).
+  const statNow = (k) => h('span', {
+    class: `stat${sts[k].mod > 0 ? ' buff' : sts[k].mod < 0 ? ' debuff' : ''}`,
+    title: `${STAT_NAME[k]}: ${sts[k].base}${sts[k].mod ? ` ${signed(sts[k].mod)} terrain` : ''}`,
+  }, iconEl('stats', k, 'currentColor', 13), sts[k].total,
+  k === 'movement' && moving ? h('span', { class: 'muted' }, ` (${ts.move.remaining} left)`) : null);
 
   const mine = st.phase === 'battle' && u.player === st.current && myTurn(st);
   const captures = mine ? E.captureTargets(st, u.id) : [];
@@ -1176,12 +1195,7 @@ function selectedCard(st) {
     h('div', { class: 'muted with-icon' }, `${TIER[def.tier]} · `, iconEl('terrain', u.hex && st.hexes[u.hex].terrain), `On ${terr.name}`, Object.keys(terr.mods).length ? modsEl(terr.mods) : null),
     skillsEl(def),
     partsEl(st, u),
-    h('table', { class: 'stats' },
-      h('tr', {}, h('th', {}, ''), h('th', {}, 'base'), h('th', {}, 'terrain'), h('th', {}, 'now')),
-      row('attack', h('span', { class: 'with-icon' }, iconEl('stats', 'attack', 'currentColor', 14), 'Attack')),
-      row('defence', h('span', { class: 'with-icon' }, iconEl('stats', 'defence', 'currentColor', 14), 'Defence')),
-      row('movement', h('span', { class: 'with-icon' }, iconEl('stats', 'movement', 'currentColor', 14), 'Movement')),
-      row('range', h('span', { class: 'with-icon' }, iconEl('stats', 'range', 'currentColor', 14), 'Range'))),
+    h('div', { class: 'statline now' }, STAT_ORDER.map(statNow)),
     captureBox,
     mergeBox,
     threat);
@@ -1293,24 +1307,6 @@ function peopleTag(o) {
     `${playing} playing · ${watching} watching`);
 }
 
-// Each side's units: on the board (merged ones by their merged name), still to place, and captured.
-function armiesCard(st) {
-  const row = (p, type, status, u) => h('div', {
-    class: `army-row${u && u.dead ? ' dead' : ''}${u && ui.selected() === u.id ? ' on' : ''}`,
-    onclick: () => { if (u && !u.dead) select(u.id); },
-    title: R.units[type].tier > 1 ? partNames(R.units[type].parts) : null,
-  }, unitMini(type, p), h('span', {}, R.units[type].name, h('span', { class: 'muted' }, ` · ${status}`)));
-  const col = (p) => {
-    const units = Object.values(st.units).filter((u) => u.player === p);
-    return h('div', { class: 'army' },
-      h('h3', {}, chip(p), P(p).name),
-      units.filter((u) => !u.dead).map((u) => row(p, u.type, E.terrainAt(st, u.hex).name, u)),
-      st.supply[p].units.map((type) => row(p, type, 'not placed', null)),
-      units.filter((u) => u.dead).map((u) => row(p, u.type, 'captured', u)));
-  };
-  return h('section', { class: 'card armies' }, col(0), col(1));
-}
-
 function logCard(st) {
   const d = h('details', { class: 'card', open: logOpen },
     h('summary', {}, 'Log'),
@@ -1321,7 +1317,7 @@ function logCard(st) {
   return d;
 }
 
-// The rules in brief, then the unit and terrain tables. Numbers come from rules.js and the
+// The rules in brief, then the base unit, skill and terrain tables. Numbers come from rules.js and the
 // sentences follow its option switches, so this stays true when the game is tuned.
 function rulesCard(st) {
   const o = st.options;
@@ -1347,15 +1343,17 @@ function rulesCard(st) {
       + 'A unit sharing a hex with an enemy can capture it without moving.'],
     ['Merging', 'Move a unit onto another of yours to merge them into one new unit'
       + (o.mergeEndsMove ? ', which ends the move' : '') + '. Two of your units sharing a hex can merge where they stand. '
-      + 'Attack and defence add up; movement and range are the best of the parts. Any mix of your five base units makes a different unit: 31 in all.'],
+      + 'Attack and defence add up; movement and range are the best of the parts. Any mix of your five base units makes a different unit: 31 in all. '
+      + mergeExample()],
     ['Splitting', 'Select a merged unit and untick the parts to leave behind. The rest split off and move as their own unit, with its own movement.'],
-    ['Winning', `${win[0].toUpperCase()}${win.slice(1)}.`],
+    ['Winning', `${win[0].toUpperCase()}${win.slice(1)}. `
+      + stalemateRule()],
   ];
   const d = h('details', { class: 'card', open: rulesOpen },
     h('summary', {}, 'Rules'),
     h('div', { class: 'rules' }, rules.map(([title, text]) => h('p', {}, h('strong', {}, `${title}. `), text))),
-    unitTable([['Unit', R.base]], true),
-    unitsDetails(),
+    baseTable(),
+    skillTable(),
     h('table', { class: 'ref' },
       h('tr', {}, h('th', {}, 'Terrain'), h('th', {}, 'Effect')),
       Object.entries(R.terrain).filter(([, t]) => Object.keys(t.mods).length).map(([id, t]) =>
@@ -1364,27 +1362,52 @@ function rulesCard(st) {
   return d;
 }
 
-// A reference table of unit types with their stats (and skills, for the base units).
-// groups: [[heading, [type, …]], …], each heading a row of its own after the first.
-function unitTable(groups, skills) {
-  const head = (title) => h('tr', {}, h('th', {}, title), STAT_ORDER.map((k) => h('th', {}, statLabel(k, 13))), skills ? h('th', {}, 'Skill') : null);
-  return h('table', { class: 'ref' }, groups.map(([title, types]) => [head(title), types.map((id) => {
-    const u = R.units[id];
-    return h('tr', { title: u.tier > 1 ? partNames(u.parts) : null },
-      h('td', { class: 'with-icon' }, u.tier > 1 ? h('span', { class: 'recipe' }, u.short) : iconEl('units', id), u.name),
-      [u.attack, u.defence, u.movement, u.range].map((x) => h('td', {}, x)),
-      skills ? h('td', {}, (u.skills || []).map((sk) => skillTag(sk))) : null);
-  })]));
+// The five base unit types and their stats. Merged units aren't listed: the Merging rule says how they're made.
+function baseTable() {
+  const kind = (id) => id[0].toUpperCase() + id.slice(1);
+  return h('table', { class: 'ref' },
+    h('tr', {}, h('th', {}, 'Type'), STAT_ORDER.map((k) => h('th', {}, statLabel(k, 13)))),
+    R.base.map((id) => {
+      const u = R.units[id];
+      return h('tr', {},
+        h('td', { class: 'with-icon', title: u.name }, iconEl('units', id), kind(id)),
+        [u.attack, u.defence, u.movement, u.range].map((x) => h('td', {}, x)));
+    }));
 }
 
-// Every merged unit, by how many base units are in it.
-function unitsDetails() {
-  const ofTier = (tier) => Object.keys(R.units).filter((t) => R.units[t].tier === tier);
-  const d = h('details', { class: 'all-units', open: unitsOpen },
-    h('summary', {}, 'All 31 units'),
-    unitTable([['Pairs', ofTier(2)], ['Triples', ofTier(3)], ['Special units', ofTier(4)], ['Ultimate', ofTier(5)]], false));
-  d.addEventListener('toggle', () => { unitsOpen = d.open; });
-  return d;
+// Each skill, the exact combination of base types that has it, and what it does.
+function skillTable() {
+  const kind = (id) => id[0].toUpperCase() + id.slice(1);
+  const holders = (sk) => Object.values(R.units).filter((u) => (u.skills || []).includes(sk));
+  return h('table', { class: 'ref skills-ref' },
+    h('tr', {}, h('th', {}, 'Skill'), h('th', {}, 'Who has it')),
+    Object.entries(R.skills).map(([sk, def]) => [
+      h('tr', {},
+        h('td', {}, skillTag(sk)),
+        h('td', {}, holders(sk).map((u) => h('div', {},
+          u.parts.map(kind).join(' + '), u.tier === 1 ? ' only' : null, h('span', { class: 'muted' }, ` (${u.name})`))))),
+      h('tr', { class: 'skill-effect' }, h('td', { colspan: 2, class: 'muted' }, def.description)),
+    ]),
+    h('tr', { class: 'skill-effect' }, h('td', { colspan: 2, class: 'muted' }, 'A merged unit doesn\'t keep its parts\' skills: only the exact combination listed has one.')));
+}
+
+// "If both sides have a Nuke on the board, the game ends in a stalemate.", from the skills in rules.js.
+function stalemateRule() {
+  const names = Object.values(R.units)
+    .filter((u) => (u.skills || []).some((sk) => R.skills[sk].mutualStalemate))
+    .map((u) => u.name);
+  return names.length ? `If both sides have a ${names.join(' or ')} on the board, the game ends in a stalemate and nobody wins.` : '';
+}
+
+// "For example, Light + Armour makes an Infantry Fighting Vehicle: attack 1, defence 3 …", from rules.js.
+function mergeExample() {
+  const [a, b] = R.base;
+  const m = R.units[R.typeOf([a, b])];
+  const kind = (id) => id[0].toUpperCase() + id.slice(1);
+  const article = /^[aeiou]/i.test(m.name) ? 'an' : 'a';
+  return `For example, ${kind(a)} + ${kind(b)} makes ${article} ${m.name}: `
+    + `attack ${R.units[a].attack} + ${R.units[b].attack} = ${m.attack}, defence ${R.units[a].defence} + ${R.units[b].defence} = ${m.defence}, `
+    + `movement ${m.movement}, range ${m.range}.`;
 }
 
 // Handy from the browser console, e.g. NearPeer.ui.state() or NearPeer.commit({ type: 'endTurn' }).

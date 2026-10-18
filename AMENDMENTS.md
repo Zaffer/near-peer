@@ -22,7 +22,7 @@ How the rules got to where they are, and the changes still to consider.
 | A4 | **Capturing ends the move.** Defeating a unit ends the capturing unit's move. | Play discussion, 2026-10-15 | `captureEndsMove` | Currently off: the capturing unit can keep moving and still gets road bonuses. |
 | A5 | **Only coverts can share hexes and block.** Normal units can't move onto another unit's hex at all, so a covert sitting alone also blocks normal units. | Play discussion, 2026-10-15 | `normalUnitsCanJoinOccupiedHex: false` | Currently a normal unit may move onto a lone covert. |
 | A7 | **Limit captures per turn** (e.g. one). | Play discussion, 2026-10-16 | — | Currently unlimited ("wild west"): one move can capture as many units as it can reach and beat. Revisit if chain captures swing games too hard. A4 (`captureEndsMove`) is the blunter version. |
-| A8 | **Merging units.** Any set of 2+ different units merges into one new unit (31 in total), with names and starting ideas in [UNITS.md](UNITS.md). | Design session, 2026-10-18 | `mergeEndsMove` (v2) | Playable in v2 without abilities (see the decision log, 2026-10-18). Still open: the real movement and range rule for merged units (v2 uses the best of the parts), and turning the ideas into abilities. |
+| A8 | **Merging units.** Any set of 2+ different units merges into one new unit (31 in total), with names and starting ideas in [UNITS.md](UNITS.md). | Design session, 2026-10-18 | `mergeEndsMove` | Playable without abilities (see the decision log, 2026-10-18). Still open: the real movement and range rule for merged units (the game uses the best of the parts), and turning the ideas into abilities. |
 
 ## Not rules, but later
 - Polish pass on the interface.
@@ -32,7 +32,57 @@ How the rules got to where they are, and the changes still to consider.
 
 ## Decision log
 
-Newest first.
+Newest first. Entries before "v2 replaces v1" describe two versions side by side: v1 (the original game at `/`)
+and v2 (merging units, in `v2/`). Their file paths are as they were then.
+
+### 2026-10-18 — v2 replaces v1
+- **What:** v2 is now the only version of the game. Its files moved from `v2/` to the top of the repository
+  (`index.html`, `js/`, `tests/`, `tools/`, `RULES.md`), and the v1 files were deleted (they're still in git history).
+- **Rules:** Those of v2. RULES.md is the former `v2/RULES.md`, now standing on its own, with the movement
+  examples written for 1-move and 2-move units.
+- **Online:** Rooms keep v2's namespace (`near-peer-v2`), so an old v1 link can't join a game with a record
+  the engine can't replay.
+- **Playing against Claude:** the bridge keeps one game record at `/api/game`.
+- **Why:** The user approved v2 and asked for it to replace v1 completely.
+
+### 2026-10-18 — v2: Nuclear Deterrence and stalemates; skills table; no terrain labels on the board
+- **What:** The Nuke (all five base units merged) has a new skill, **Nuclear Deterrence**. If both sides have a Nuke
+  on the board, the game ends at once in a **stalemate**: phase over, no winner.
+  - A win on the same move still comes first.
+  - The game shows "Stalemate" at the top, under the board and as a grey banner.
+- **Skills by combination:** skills now belong to an exact combination of base units (`UNIT_SKILLS` in `v2/js/rules.js`):
+  `F` has Surveillance and `LARFH` has Nuclear Deterrence. Merged units still don't keep their parts' skills.
+- **Rules card:** the Skill column left the base unit table. A table of its own lists each skill, the combination that
+  has it and what it does.
+- **Board:** the terrain modifier labels on tiles are gone in v2. The hover bar and the rules still give them.
+- **Why:** The Nuke is the ultimate unit. Mutual deterrence makes building one a race with a real downside.
+
+### 2026-10-18 — v2: full-screen board with a menu; shorter unit reference
+- **What:** v2 fills the window with no page scrolling. The side panel is gone:
+  - Over the board: whose turn it is (top left) and a **Menu** button (top right).
+  - Under the board: what you can do right now (placing pieces, ending the turn, the selected unit with its split, merge and capture buttons), and the hover details.
+  - Online, until the other player joins, the space under the board offers the invite link.
+  - The Menu opens full screen and scrolls. It holds Play online, Settings, Rules and Log, and `Esc` closes it.
+  - The list of every unit on each side was dropped.
+  - The selected unit shows its stats on one line (green or red where terrain changes them) instead of a table.
+  - The rules show the five base types (Light, Armour, Range, Flying, Hero) and their stats, plus a worked merge example from `rules.js`. The list of all 31 units is gone.
+  - Fixed: tables nested two deep printed "[object HTMLTableRowElement]" instead of rows, which is why the live rules showed no unit names.
+- **Rules:** None. v1 keeps its side panel.
+
+### 2026-10-18 — v2: a picture for every unit; three swaps and singular names
+- **What:** With the Graphic unit style, all 31 v2 units have their own picture (`v2/js/unitart.js`). Special units get a
+  second ring and the Nuke a third. The Symbols style still shows a merged unit as the icons of its parts.
+  The pictures were reviewed unit by unit, and the feedback changed them: the Armoured Carrier has no gun,
+  the Infantry Fighting Vehicle uses the carrier's wheels, the Howitzer is a big gun on a truck, the Strike Drone is the drone itself,
+  the Scout wears a ghillie suit, Special Forces carry a knife,
+  the Nuke is a multiple-warhead missile in space with its warheads still on board, and parachutes, rotors, smoke and aircraft noses may reach out over the ring.
+- **Names:** units swap recipes, each keeping its name, picture and idea. Where they ended up:
+  Electronic Warfare L+A+H (was L+A+R+H), Assault Trooper (was Assault Brigade, L+A+H) L+A+R, Main Battle Tank L+A+R+H (was L+A+R),
+  Special Forces L+A+F+H (was L+R+F+H), Massive Bomb (was Massive Ordnance, L+A+F+H) L+R+F+H.
+  Air Defence and Strategic Bomber swapped and then swapped back, so they're where they started (A+R+H and A+R+F).
+  Pairs are single units, so their names are singular: Drone Operators → Strike Drone, Scout Team → Scout, Combat Engineers → Combat Engineer.
+  Bomber Drones → Bomber Drone and Paratroopers → Paratrooper too.
+- **Rules:** Stats follow the recipe, so the swapped units take the stats of their new recipes.
 
 ### 2026-10-18 — v2: merging units (`/v2`)
 - **What:** A second version of the game in `v2/`, served at `/v2`, with its own rules file, tests and [v2/RULES.md](v2/RULES.md).

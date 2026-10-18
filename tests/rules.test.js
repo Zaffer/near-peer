@@ -1,5 +1,5 @@
 /*
- * Near Peer v2 — rule tests. Open tests.html to run them.
+ * Near Peer — rule tests. Open tests.html to run them.
  * Each test builds a small battle scenario and checks one rule. When a rule is
  * changed on purpose, update the test that pins it.
  */
@@ -40,6 +40,9 @@ const scenario = (spec) => {
   return E.scenario(Object.assign({}, spec, { units }));
 };
 
+// All five base units merged.
+const NUKE = 'light+armour+range+flying+hero';
+
 // A straight row through the middle of the board, left to right.
 const ROW = ['-2,0', '-1,0', '0,0', '1,0', '2,0'];
 // A unit with 2 movement and no skill (Rifle Squad + Recon Drone), for the movement rules.
@@ -78,18 +81,20 @@ test('base unit stats', () => {
 });
 
 test('merged units add attack and defence, and take the best movement and range', () => {
-  const mbt = R.units['light+armour+range'];
-  eq([mbt.name, mbt.attack, mbt.defence, mbt.movement, mbt.range], ['Main Battle Tank', 3, 3, 1, 2]);
+  const lar = R.units['light+armour+range'];
+  eq([lar.name, lar.attack, lar.defence, lar.movement, lar.range], ['Assault Trooper', 3, 3, 1, 2]);
   const nuke = R.units['light+armour+range+flying+hero'];
   eq([nuke.name, nuke.attack, nuke.defence, nuke.movement, nuke.range], ['Nuke', 5, 5, 2, 2]);
   eq(R.units['light+armour'].name, 'Infantry Fighting Vehicle');
   eq(R.units['light+range'].name, 'Machine Gunner');
 });
 
-test('only the Recon Drone has a skill (Surveillance)', () => {
+test('only the Recon Drone (Surveillance) and the Nuke (Nuclear Deterrence) have skills', () => {
   const skilled = Object.keys(R.units).filter((t) => (R.units[t].skills || []).length);
-  eq(skilled, ['flying']);
+  eq(skilled, ['flying', NUKE]);
   eq(R.units.flying.skills, ['surveillance']);
+  eq(R.units[NUKE].skills, ['nuclearDeterrence']);
+  eq(R.units['flying+hero'].skills, undefined, 'a merge with the drone in it doesn\'t keep Surveillance');
 });
 
 // ---------------------------------------------------------------- build phase
@@ -555,7 +560,7 @@ test('merged units can merge again, up to the Nuke', () => {
   const next = (st) => E.apply(st, { type: 'endTurn' });
   s = next(next(merge(s, 'p0-light', ROW[1], 'p0-armour')));
   s = next(next(merge(s, 'p0-light+armour', ROW[2], 'p0-range')));
-  eq(R.units[s.units['p0-light+armour+range'].type].name, 'Main Battle Tank');
+  eq(R.units[s.units['p0-light+armour+range'].type].name, 'Assault Trooper');
   s = merge(s, 'p0-light+armour+range', ROW[3], 'p0-flying+hero');
   const nuke = s.units['p0-light+armour+range+flying+hero'];
   eq([R.units[nuke.type].name, E.stat(s, nuke.id, 'attack'), E.stat(s, nuke.id, 'defence')], ['Nuke', 5, 5]);
@@ -590,7 +595,7 @@ test('a split needs some parts to leave and some to stay, and starts the move', 
   illegal(s, { type: 'split', unitId: 'p0-light+armour+hero', parts: [], to: ROW[2] });
   illegal(s, { type: 'split', unitId: 'p0-light+armour+hero', parts: ['range'], to: ROW[2] });
   const s2 = split(s, 'p0-light+armour+hero', ['light', 'hero'], ROW[2]);
-  eq(R.units[s2.units['p0-light+hero'].type].name, 'Scout Team');
+  eq(R.units[s2.units['p0-light+hero'].type].name, 'Scout');
   eq(R.units[s2.units['p0-armour'].type].name, 'Armoured Carrier');
   const moved = step(scenario({ units: [{ player: 0, type: 'light+armour+hero', hex: ROW[0] }, { player: 0, type: 'range', hex: ROW[4] }] }), 'p0-range', ROW[3]);
   illegal(moved, { type: 'split', unitId: 'p0-light+armour+hero', parts: ['light'], to: ROW[1] });
@@ -610,6 +615,28 @@ test('a split-off part can capture, and can merge into another unit', () => {
 });
 
 // ---------------------------------------------------------------- winning
+
+test('Nuclear Deterrence: when both sides have a Nuke, the game ends in a stalemate', () => {
+  const s = scenario({ units: [
+    { player: 0, type: 'light+armour+range+flying', hex: ROW[1] },
+    { player: 0, type: 'hero', hex: ROW[2] },
+    { player: 1, type: NUKE, hex: '2,-2' },
+  ] });
+  const s2 = merge(s, 'p0-light+armour+range+flying', ROW[2], 'p0-hero');
+  ok(Object.values(s2.units).some((u) => !u.dead && u.player === 0 && u.type === NUKE), 'Blue merged a Nuke');
+  eq([s2.phase, s2.winner], ['over', null]);
+  ok(/Nuke/.test(s2.winReason), s2.winReason);
+  illegal(s2, { type: 'endTurn' });
+});
+
+test('one Nuke on the board alone is not a stalemate', () => {
+  const s = scenario({ units: [
+    { player: 0, type: 'light+armour+range+flying', hex: ROW[1] },
+    { player: 0, type: 'hero', hex: ROW[2] },
+    { player: 1, type: 'hero', hex: '2,-2' },
+  ] });
+  eq(merge(s, 'p0-light+armour+range+flying', ROW[2], 'p0-hero').phase, 'battle');
+});
 
 test('stepping onto the enemy capital alone wins', () => {
   const s = scenario({

@@ -1,6 +1,6 @@
-// Temporary: Claude's side of a v2 game against the page (v2/?vs=claude). Run with Bun.
+// Temporary: Claude's side of a game against the page (?vs=claude). Run with Bun.
 //
-//   bun v2/tools/claude.js show              the board, every unit, and my legal moves
+//   bun tools/claude.js show              the board, every unit, and my legal moves
 //   bun tools/claude.js try '<actions>'   apply a JSON action (or a list) and show the result, without sending it
 //   bun tools/claude.js play '<actions>'  send it as my move; in battle, end with {"type":"endTurn"}
 //   bun tools/claude.js wait              return once it's my turn or the game is over
@@ -12,7 +12,7 @@
 import * as E from '../js/engine.js';
 import R from '../js/rules.js';
 
-const API = process.env.BRIDGE || 'http://localhost:8000/v2/api/game';
+const API = process.env.BRIDGE || 'http://localhost:8000/api/game';
 const ME = 1; // Red
 const name = (p) => R.players[p].name;
 
@@ -39,7 +39,7 @@ const fmtStats = (s, id) => {
 function show(s) {
   const out = [];
   out.push(`Turn ${s.turn} · phase ${s.phase} · to play: ${name(s.current)}${s.current === ME ? ' (me)' : ''}`);
-  if (s.phase === 'over') out.push(`Winner: ${name(s.winner)} — ${s.winReason}`);
+  if (s.phase === 'over') out.push(s.winner === null ? `Stalemate, nobody wins — ${s.winReason}` : `Winner: ${name(s.winner)} — ${s.winReason}`);
   out.push(`Board radius ${R.boardRadius}, axial "q,r". Zones: Blue ${R.zones[0].length} hexes, Red ${R.zones[1].length} hexes.`);
   out.push(`Red zone: ${R.zones[1].join(' ')}`);
   out.push(`Blue zone: ${R.zones[0].join(' ')}`);
@@ -123,7 +123,7 @@ try {
       await Bun.sleep(1500);
     }
   } else {
-    console.log('usage: bun v2/tools/claude.js show | try <actions> | play <actions> | wait');
+    console.log('usage: bun tools/claude.js show | try <actions> | play <actions> | wait');
   }
 } catch (e) {
   console.error(`Error: ${e.message}`);

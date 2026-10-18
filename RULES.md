@@ -1,12 +1,10 @@
-# Near Peer v2 — rules (v0.3)
+# Near Peer — rules (v0.3)
 
-The original rules ([../RULES.md](../RULES.md)) plus **merging units**, with new base stats and the
-Recon Drone in place of the Covert. Numbers and switches live in [js/rules.js](js/rules.js);
+The agreed rules as implemented. Numbers and switches live in [js/rules.js](js/rules.js);
 [tests.html](tests.html) checks each rule below. The unit names, the 31 merges and the ideas for
-later abilities are in [../UNITS.md](../UNITS.md).
+later abilities are in [UNITS.md](UNITS.md).
 
 ## Board and setup
-Unchanged from v1:
 - 19-hex board, 3 hexes per side (Catan layout), rows of 3/4/5/4/3.
 - **Blue** (bottom) goes first. **Red** (top) goes second.
 - Zones: your back row (3) + next row (4) + the two middle-row hexes on your right (9 hexes).
@@ -31,6 +29,14 @@ Unchanged from v1:
 - It **can't take the capital**. Standing on the enemy capital doesn't win.
 - Only the Recon Drone itself has Surveillance. A merged unit with a drone in it doesn't.
 
+### Nuclear Deterrence (Nuke)
+- Only the Nuke (all five base units merged: L+A+R+F+H) has it.
+- If **both sides** have a Nuke on the board, the game ends at once in a **stalemate**: nobody wins.
+- A Nuke on one side only does nothing special.
+
+Skills belong to an exact combination of base units (`UNIT_SKILLS` in `js/rules.js`). A merged unit
+doesn't keep its parts' skills.
+
 ## Merging
 - Move a unit onto another of your units and the two **merge** into one new unit on that hex.
   It can walk up first and merge at the end of its move. **Merging ends the move**
@@ -40,7 +46,7 @@ Unchanged from v1:
 - A merged unit is defined by the base units in it, whatever order they joined in.
   Any mix of your five makes a different unit: 5 base, 10 pairs, 10 triples, 5 special units and the
   Nuke, **31 in all**. Merged units can merge again (Rifle Squad + Armoured Carrier = Infantry Fighting
-  Vehicle, + Mortar Team = Main Battle Tank).
+  Vehicle, + Mortar Team = Assault Trooper).
 - Units can only merge if they share no base unit. With one of each per player, any two of your units
   always can.
 - **Stats:** attack and defence are the **sum** of the parts. Movement and range are the **best** of the
@@ -54,24 +60,43 @@ Unchanged from v1:
   and move as a unit of their own, with their own movement. The rest stays where it was.
 - The split is the first step of that unit's move, so it has to step off the hex, and it can carry on
   moving, capture, or merge into another of your units on the way. The part left behind can't move this turn.
-- Example: a Drone Operators unit (Rifle Squad + Recon Drone) splits off its Recon Drone, which flies 2 hexes.
+- Example: a Strike Drone (Rifle Squad + Recon Drone) splits off its Recon Drone, which flies 2 hexes.
   The Rifle Squad stays.
 
 ## Terrain
-Unchanged from v1. A terrain tile's modifier applies to **any** unit standing on it, from either side.
+A terrain tile's modifier applies to **any** unit standing on it, from either side.
+Once placed, terrain belongs to no one, except each capital, which stays its player's.
 - Capital: +1 atk, +1 def. Town: +1 atk. Fortification: +1 def.
 - Road: +1 movement. Minefield: −1 movement.
 
 ## Turns and movement
-Unchanged from v1:
 - Each turn, **move one unit** (one continuous path), merge two units, or pass.
   The turn ends automatically once the move is spent (a UI toggle).
 - Each step goes to an adjacent hex. **Starting on a minefield** costs 1 movement (minimum 0).
   **Entering a minefield** takes 1 movement away immediately. **Landing on a road** guarantees at least
   one more step, once per road each move. Starting on a road gives nothing extra.
 
-The movement examples from v1 still hold. A "2-move unit" is now the Recon Drone or anything merged with one
-(the tests use Drone Operators). Every example is checked by a test in `tests/rules.test.js` ("ex 1" … "ex 14").
+A "1-move unit" is e.g. the Armoured Carrier. A "2-move unit" is the Recon Drone or anything merged with one
+(the tests use the Strike Drone).
+
+| # | Unit and path | Moves |
+|---|---------------|-------|
+| 1 | 1-move starts on road → plain | 1 |
+| 2 | 1-move starts on road → road → plain | 2 |
+| 3 | 1-move plain → road → plain | 2 |
+| 4 | 2-move starts on road → plain → plain | 2 |
+| 5 | 2-move road → plain | 2 |
+| 6 | 2-move plain → road → plain | 3 |
+| 7 | 2-move road → road → road → plain | 4 |
+| 8 | 2-move starts on minefield → plain | 1 |
+| 9 | 2-move starts on minefield → road → plain | 2 |
+| 10 | 1-move starts on minefield | can't move |
+| 11 | 2-move plain → minefield | 1 (stops on the mines) |
+| 12 | 2-move starts on road → plain → back onto that road → plain | 3 |
+| 13 | 1-move plain → road → minefield | 2 |
+| 14 | 1-move road → road → back onto the first road | 3 (each road pays once) |
+
+Every row is checked by a test in `tests/rules.test.js` ("ex 1" … "ex 14").
 
 ## Stacking
 - A hex normally holds one unit. With a **Recon Drone** on it, it holds two:
@@ -81,9 +106,9 @@ The movement examples from v1 still hold. A "2-move unit" is now the Recon Drone
 - Normal units are blocked by any unit that isn't sharable, including your own (unless they merge with it).
 
 ## Attack and capturing
-Unchanged from v1. Attack is passive. Every one of your units is always "attacking" every enemy within its range.
+Attack is passive. Every one of your units is always "attacking" every enemy within its range.
 - **Combined attack** on an enemy = the attack of all your units within range of it, added together
-  (terrain included). A unit on the same hex as the enemy is at distance 0, so it counts too.
+  (terrain included). Distance is counted in hexes and needs no line of sight. A unit on the same hex as the enemy is at distance 0, so it counts too.
 - **Capturing:** step onto an enemy whose defence is **≤** your combined attack and it is captured.
   The unit stepping in counts from the hex it steps in from. A unit with 0 attack still captures a unit with
   0 defence, as long as it's in range.
@@ -98,3 +123,8 @@ Unchanged from v1. Attack is passive. Every one of your units is always "attacki
   An enemy Recon Drone sharing the capital blocks the win (capture it instead and you win).
   It triggers the moment you step there, even while passing through, or when you merge there.
 - **Elimination:** defeat every enemy unit.
+- **Stalemate:** if both sides have a Nuke on the board, the game ends with no winner (Nuclear Deterrence).
+  A win on the same move comes first.
+
+## Changes and ideas
+See [AMENDMENTS.md](AMENDMENTS.md) for the ideas we're considering and a log of every rule decision and why.

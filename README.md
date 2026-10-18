@@ -2,34 +2,32 @@
 
 Use strategy to defeat your opponent on the battlefield with using terrain and movement.
 A two-player hex board game where you control military troops and place fortifications.
-Plain HTML, CSS and JS (ES modules), with no build step.
+Combine and seperate units to concentrate power where you need it.
 
 ## Play
 Serve the folder and open it in a browser, e.g. `python3 -m http.server` and then http://localhost:8000. Browsers won't load modules from a file, so double-clicking `index.html` doesn't work. The page needs an internet connection the first time, to load [alien-signals](https://github.com/stackblitz/alien-signals) from jsDelivr.
 - `index.html?quick` skips the build phase with a random setup.
-- Keys: `E` end turn (or pass), `Z` undo, `Esc` deselect.
-- Dark mode follows your system. The **Theme** picker in the side panel can set Light or Dark instead, and the browser remembers it.
-- Tiles with terrain show what it does to a unit standing there (e.g. `+1` attack, `-1` movement).
+- Keys: `E` end turn (or pass), `Z` undo, `Esc` deselect or close the menu.
+- The game fills the window. Whose turn it is sits at the top left, and what you can do right now is under the board: placing pieces, ending the turn, and the selected unit with its split, merge and capture buttons. Online play, settings, rules and the log are in the **Menu** (top right), which opens full screen.
+- Dark mode follows your system. The **Theme** setting in the Menu can set Light or Dark instead, and the browser remembers it.
 - Hover any unit to see curved arrows from every enemy unit attacking it, with the total vs its defence.
 - To move, select a unit and click where it should go, or drag it there (works on touch screens). An arrow shows where it's heading: in your colour if it can get there, magenta if it would capture, grey if it can't. A hex more than one step away is reached by the shortest route that doesn't fight on the way.
 
-## Version 2: merging units
-Open `/v2/` (e.g. http://localhost:8000/v2/, with `v2/?quick` for a random setup). In v2 your units can **merge**:
-move a unit onto another of yours and they become one new unit, with their attack and defence added up.
-Any mix of your five base units makes a different unit, 31 in all, and merged units can split back up.
-The base units are the Rifle Squad, Armoured Carrier, Mortar Team, Recon Drone and Commander, with new stats.
-There are no special abilities yet, apart from the Recon Drone's Surveillance.
-- Rules: [v2/RULES.md](v2/RULES.md). Unit names and ideas: [UNITS.md](UNITS.md). Tests: `v2/tests.html`.
-- v2 is a separate copy of the game in [v2/](v2/), with the same file layout as below (`v2/js/rules.js` and so on), so v1 at `/` is unchanged.
-- Online v2 games are separate from v1 games. Playing against Claude works the same way, at `/v2/?vs=claude` with `bun v2/tools/claude.js`.
+## Merging units
+Move a unit onto another of yours and they **merge** into one new unit, with their attack and defence added up.
+Any mix of your five base units (Rifle Squad, Armoured Carrier, Mortar Team, Recon Drone and Commander) makes a different unit, 31 in all, and merged units can split back up.
+The only special abilities so far are the Recon Drone's Surveillance and the Nuke's Nuclear Deterrence.
+- With the Graphic unit style, every one of the 31 units has its own picture (`js/unitart.js`). Special units get a
+  second ring and the Nuke a third. The Symbols style shows a merged unit as the icons of the units in it.
 
 ## Play online
 Click **Create a game and get a link** and send the link to a friend. They play Red, and anyone else who opens it watches.
 - Moves go straight between the two browsers ([Trystero](https://github.com/dmotz/trystero), WebRTC). There's no game server, and both browsers check every move against the rules.
 - To play someone on another computer, host the folder online (e.g. GitHub Pages). A link from `localhost` only works on your own machine, which is handy for testing in two tabs.
 - Some strict office or mobile networks block direct connections.
+- Playing against Claude: `python3 tools/bridge.py`, open http://localhost:8000/?vs=claude, and run `bun tools/claude.js` for Claude's side (temporary).
 
-The rules are in [RULES.md](RULES.md). Ideas and past rule decisions are tracked in [AMENDMENTS.md](AMENDMENTS.md). The unit-merge design (31 units) is in [UNITS.md](UNITS.md). Open `tests.html` (served, like the game) to run the tests.
+The rules are in [RULES.md](RULES.md). Ideas and past rule decisions are tracked in [AMENDMENTS.md](AMENDMENTS.md). The unit names, the 31 merges and ideas for their abilities are in [UNITS.md](UNITS.md). Open `tests.html` (served, like the game) to run the tests.
 
 ## Roadmap
 
@@ -45,14 +43,14 @@ An expansion version of the game with the sea and naval units. Nothing is decide
 ## Changing the rules
 | File | What lives there |
 |------|------------------|
-| `js/rules.js` | Every number, zone, terrain effect, option switch, and the small rule functions (hit check, movement maths, stacking). **Tune the game here.** |
+| `js/rules.js` | Every number, zone, terrain effect, the 31 units and their skills, option switch, and the small rule functions (hit check, movement maths, stacking). **Tune the game here.** |
 | `js/engine.js` | Pure game logic: `apply(state, action)`. Every legality check is in one action handler. `assault()` works out a combined attack. |
-| `js/ui.js` | SVG board and side panel. It only ever asks the engine what's legal. What's on screen lives in signals, and each part of the page is an effect that redraws itself when the signals it read change. |
+| `js/ui.js` | SVG board, the cards under it and the Menu. It only ever asks the engine what's legal. What's on screen lives in signals, and each part of the page is an effect that redraws itself when the signals it read change. |
 | `js/signals.js` | Signals, computeds and effects from alien-signals (version pinned here), plus `batch` and `untracked`. |
 | `js/hex.js` | Hex grid maths. |
 | `js/colours.js` | Terrain colours. Purely visual. |
 | `js/mapview.js` | The "Graphic" map style: blended terrain, joined-up roads, river between the zones. Purely visual. |
-| `js/unitart.js` | The "Graphic" unit style: illustrated tokens (infantry, tank, truck-mounted howitzer, special forces, general). Purely visual. |
+| `js/unitart.js` | The "Graphic" unit style: a picture for each of the 31 units. Purely visual. |
 | `js/effects.js` | Short animations after each action: units sliding between hexes, attack streaks and captures, minefield blasts, river splashes, taking the capital, whose turn it is. Purely visual. |
 | `js/icons.js` | One SVG icon per unit and terrain type, using the same type ids as `rules.js`. |
 | `js/online.js` | Online play: joins a peer-to-peer room, sends the game record, replays the other side's moves through the engine, settles who sits where. The room's state, seat, status and peers are signals. |

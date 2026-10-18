@@ -7,23 +7,17 @@ and write. Like online play, a record only replaces the stored one if its rev is
 higher. Kept in memory, so restarting the bridge starts a new game.
 
     python3 tools/bridge.py      then open http://localhost:8000/?vs=claude
-                                 (or http://localhost:8000/v2/?vs=claude for v2,
-                                 which keeps its own record at /v2/api/game)
 """
 import http.server
 import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-# One game record per version: '' for v1 (/api/game), 'v2' for v2 (/v2/api/game).
-records = {'': {'rev': 0, 'batches': []}, 'v2': {'rev': 0, 'batches': []}}
+record = {'rev': 0, 'batches': []}
 
 
-def version_of(path):
-    for v in records:
-        if path.startswith(f'/{v}/api/game' if v else '/api/game'):
-            return v
-    return None
+def is_api(path):
+    return path.startswith('/api/game')
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -40,14 +34,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        v = version_of(self.path)
-        if v is not None:
-            return self.send_json(200, records[v])
+        if is_api(self.path):
+            return self.send_json(200, record)
         return super().do_GET()
 
     def do_POST(self):
-        v = version_of(self.path)
-        if v is None:
+        global record
+        if not is_api(self.path):
             return self.send_json(404, {'error': 'not found'})
         try:
             body = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))))
@@ -55,10 +48,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             assert isinstance(batches, list)
         except Exception:
             return self.send_json(400, {'error': 'expected {rev, batches}'})
-        if rev <= records[v]['rev']:
-            return self.send_json(409, {'error': f'stale rev {rev}, have {records[v]["rev"]}', **records[v]})
-        records[v] = {'rev': rev, 'batches': batches}
-        return self.send_json(200, records[v])
+        if rev <= record['rev']:
+            return self.send_json(409, {'error': f'stale rev {rev}, have {record["rev"]}', **record})
+        record = {'rev': rev, 'batches': batches}
+        return self.send_json(200, record)
 
     def log_message(self, fmt, *args):
         if '/api/game' not in self.path:  # the page polls every second
@@ -66,5 +59,5 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 
 if __name__ == '__main__':
-    print('Near Peer vs Claude: http://localhost:8000/?vs=claude (v2: http://localhost:8000/v2/?vs=claude)')
+    print('Near Peer vs Claude: http://localhost:8000/?vs=claude')
     http.server.ThreadingHTTPServer(('', 8000), Handler).serve_forever()

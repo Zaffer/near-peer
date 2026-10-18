@@ -21,7 +21,9 @@ import * as E from './engine.js';
 import { signal, batch } from './signals.js';
 
 const TRYSTERO = 'https://cdn.jsdelivr.net/npm/trystero@0.25.4/+esm';
-const APP_ID = 'near-peer-v2'; // v2 games never meet v1 games
+// Named from when the original game (v1) ran alongside this one; keeping it means old v1 links
+// can't join these games with a record the engine can't replay.
+const APP_ID = 'near-peer-v2';
 
 // ---------------------------------------------------------------- the game record (pure)
 

@@ -14,7 +14,6 @@
   --soft: light-dark(#f1efe9, #302c28);         /* small tags, code */
   --field: light-dark(#faf8f3, #14120f);        /* read-only text fields */
   --picked: light-dark(#fffbea, #3a3418);
-  --row-on: light-dark(#fff4c2, #4a3f12);
   --pill: light-dark(#dcfce7, #163a24);
   --pill-ink: light-dark(#14532d, #a7f3c0);
   --capt-bg: light-dark(#fae8ff, #4a1650);
@@ -33,7 +32,7 @@
 :root[data-theme="light"] { color-scheme: light; }
 :root[data-theme="dark"] { color-scheme: dark; }
 /* Text colours off the board get lighter in the dark theme so they stay readable. */
-.panel, .hover-info, .menu {
+.panel, .hover-info, .menu, .dock, .topbar {
   --hit: light-dark(#b91c1c, #f87171);
   --danger: light-dark(#c026d3, #e879f9);
   --good: light-dark(#15803d, #4ade80);
@@ -42,34 +41,65 @@
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); }
 
-.layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 380px;
-  gap: 16px;
-  padding: 16px;
-  min-height: 100vh;
-}
-@media (max-width: 900px) {
-  .layout { grid-template-columns: 1fr; }
-}
-
-.board-wrap { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-#board {
-  width: 100%;
-  height: auto;
-  max-height: calc(100vh - 90px);
+/* ---- full-screen game: board, with whose turn and the menu button over its top corners,
+        and the dock (what you can do now) under it. Nothing on the page scrolls. ---- */
+html, body { height: 100%; }
+body { overflow: hidden; }
+.game {
+  position: relative;
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
   background: var(--table);
-  border-radius: 12px;
-  user-select: none;
 }
-.hover-info {
-  min-height: 40px;
+#board { flex: 1 1 0; min-height: 0; width: 100%; display: block; user-select: none; }
+
+.topbar {
+  position: absolute; top: 0; left: 0; right: 0;
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;
+  padding: 10px 12px;
+  pointer-events: none; /* the board underneath stays clickable between the two */
+}
+.topbar > * { pointer-events: auto; }
+.status-pill {
+  background: var(--card); color: var(--ink);
+  border-left: 5px solid; border-radius: 8px;
+  padding: 6px 12px; font-size: 14px;
+  box-shadow: 0 2px 8px var(--shadow);
+}
+.menu-btn { font-weight: 600; box-shadow: 0 2px 8px var(--shadow); white-space: nowrap; }
+
+.dock {
+  flex: none;
+  max-height: 50dvh;
+  overflow-y: auto;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
   padding: 8px 12px;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  font-size: 13px;
 }
+.dock-cards { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: flex-start; }
+.dock-cards:empty { display: none; }
+.dock .card { flex: 1 1 320px; max-width: 560px; padding: 8px 12px; }
+.dock .card h2 { margin-bottom: 6px; }
+.dock .hint { margin: 6px 0; }
+.hover-info {
+  max-width: 1128px; margin: 6px auto 0;
+  padding: 2px 4px;
+  font-size: 12.5px; color: var(--ink);
+}
+@media (hover: none) { .hover-info { display: none; } } /* nothing to hover on a touch screen */
+
+/* ---- the menu: a full-screen sheet that scrolls ---- */
+.sheet { position: fixed; inset: 0; z-index: 30; overflow-y: auto; background: var(--bg); }
+.sheet[hidden] { display: none; }
+.sheet-inner { max-width: 640px; margin: 0 auto; padding: 0 16px 24px; }
+.sheet-head {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--bg); padding: 12px 0;
+}
+.sheet-head .menu-btn { margin-left: auto; }
+.statline.now { display: flex; margin: 6px 0; font-size: 14px; }
 
 /* ---- board svg ---- */
 .tile { stroke: var(--table); stroke-width: 4; }
@@ -130,7 +160,6 @@ body { margin: 0; background: var(--bg); }
 }
 .card h2 { margin: 0 0 8px; font-size: 14px; display: flex; align-items: center; gap: 6px; }
 .card h3 { margin: 8px 0 4px; font-size: 12.5px; color: var(--muted); font-weight: 600; display: flex; align-items: center; gap: 6px; }
-.status { border-left: 5px solid; }
 .phase { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 .turn { font-size: 16px; margin-top: 2px; display: flex; align-items: center; gap: 6px; }
 .win { border: 2px solid; }
@@ -181,12 +210,6 @@ table.stats, table.ref { border-collapse: collapse; margin-top: 6px; width: 100%
 .toggles { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
 .toggle { display: flex; gap: 6px; align-items: center; font-size: 12.5px; cursor: pointer; }
 
-.armies { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.armies h3 { margin-top: 0; }
-.army-row { padding: 2px 4px; border-radius: 5px; cursor: pointer; font-size: 12.5px; display: flex; align-items: center; gap: 5px; }
-.army-row:hover { background: var(--hover); }
-.army-row.on { background: var(--row-on); }
-.army-row.dead { opacity: .45; text-decoration: line-through; cursor: default; }
 .mini { display: inline-grid; place-items: center; width: 17px; height: 17px; border-radius: 50%; color: #fff; font-size: 10px; font-weight: 800; flex: none; }
 
 .log { max-height: 220px; overflow-y: auto; font-size: 12.5px; }
@@ -257,15 +280,8 @@ details[open] > summary { margin-bottom: 8px; }
 .people { margin-left: auto; font-size: 11.5px; font-weight: 600; color: var(--muted); background: var(--soft); padding: 1px 8px; border-radius: 999px; }
 .peer-hover { fill-opacity: .12; stroke-width: 3.5; stroke-dasharray: 8 5; stroke-linejoin: round; }
 
-/* terrain modifiers on the tiles */
-.tmods-bg { fill: #fff; fill-opacity: .9; stroke: #000; stroke-opacity: .25; stroke-width: .8; }
-.tmods-text { font-size: 10px; font-weight: 700; text-anchor: middle; }
-.tmods-text.buff { fill: var(--good); }
-.tmods-text.debuff { fill: var(--hit); }
 
-/* ---- v2: merging and splitting ---- */
-.title .version { font-size: 13px; font-weight: 800; padding: 1px 7px; border-radius: 999px; background: var(--merge-bg); color: var(--merge-ink); vertical-align: middle; }
-.title .other-version { margin-left: auto; font-size: 12px; }
+/* ---- merging and splitting ---- */
 :root {
   --merge-bg: light-dark(#fef3c7, #45300c);
   --merge-ink: light-dark(#92400e, #fcd34d);
@@ -281,6 +297,7 @@ details[open] > summary { margin-bottom: 8px; }
 .part.on { background: var(--merge-bg); color: var(--merge-ink); border-color: #d97706; text-decoration: none; }
 span.part { text-decoration: none; color: var(--ink); background: var(--soft); border-color: var(--line); }
 .parts-box .hint { margin: 5px 0 0; }
-.recipe { display: inline-block; min-width: 34px; font-size: 10.5px; font-weight: 800; color: var(--merge-ink); letter-spacing: .03em; }
-.all-units { margin-top: 8px; }
-.all-units > summary { font-size: 12.5px; }
+
+/* rules: each skill's description sits on its own row under it */
+.skills-ref .skill-effect td { padding-top: 0; font-size: 12px; }
+.skills-ref tr:has(+ .skill-effect) td { border-bottom: 0; }

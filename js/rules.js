@@ -1,12 +1,12 @@
 /*
- * Near Peer v2 — the rules, in one place.
+ * Near Peer — the rules, in one place.
  *
  * Stats, terrain, zones, option switches and the few small rule functions all
  * live here, so the game can be tuned without touching the engine or the UI.
  * Options marked "later idea" are switches for variants we've discussed but
  * not adopted yet.
  *
- * v2 adds merging: any of your units can merge into one new unit. A unit's type
+ * Merging: any of your units can merge into one new unit. A unit's type
  * is the set of base units in it, written as their ids joined by "+" in BASE
  * order (e.g. "light+armour+range"), so all 31 types are built below from the
  * five base units and the names in NAMES. See UNITS.md for the design.
@@ -15,12 +15,12 @@
 // The five base units, in recipe order. Each player has one of each.
 const BASE = ['light', 'armour', 'range', 'flying', 'hero'];
 
-// skills: special abilities, defined in `skills` below.
+// Which units have a skill is in UNIT_SKILLS below.
 const BASE_UNITS = {
   light:  { short: 'L', attack: 1, defence: 1, movement: 1, range: 1 },
   armour: { short: 'A', attack: 0, defence: 2, movement: 1, range: 1 },
   range:  { short: 'R', attack: 2, defence: 0, movement: 1, range: 2 },
-  flying: { short: 'F', attack: 0, defence: 0, movement: 2, range: 1, skills: ['surveillance'] },
+  flying: { short: 'F', attack: 0, defence: 0, movement: 2, range: 1 },
   hero:   { short: 'H', attack: 2, defence: 2, movement: 1, range: 1 },
 };
 
@@ -28,23 +28,29 @@ const BASE_UNITS = {
 const NAMES = {
   L: 'Rifle Squad', A: 'Armoured Carrier', R: 'Mortar Team', F: 'Recon Drone', H: 'Commander',
 
-  LA: 'Infantry Fighting Vehicle', LR: 'Machine Gunner', LF: 'Drone Operators', LH: 'Scout Team',
-  AR: 'Howitzer', AF: 'Transport Helicopter', AH: 'Combat Engineers', RF: 'Long-Range Drone',
+  LA: 'Infantry Fighting Vehicle', LR: 'Machine Gunner', LF: 'Strike Drone', LH: 'Scout',
+  AR: 'Howitzer', AF: 'Transport Helicopter', AH: 'Combat Engineer', RF: 'Long-Range Drone',
   RH: 'Sniper', FH: 'Attack Helicopter',
 
-  LAR: 'Main Battle Tank', LAF: 'Heliborne Troops', LAH: 'Assault Brigade', LRF: 'Bomber Drones',
-  LRH: 'Rocket Artillery', LFH: 'Paratroopers', ARF: 'Strategic Bomber', ARH: 'Air Defence',
+  LAR: 'Assault Trooper', LAF: 'Heliborne Troops', LAH: 'Electronic Warfare', LRF: 'Bomber Drone',
+  LRH: 'Rocket Artillery', LFH: 'Paratrooper', ARF: 'Strategic Bomber', ARH: 'Air Defence',
   AFH: 'Gunship', RFH: 'Stealth Fighter',
 
-  LARF: 'Drone Swarm', LARH: 'Electronic Warfare', LAFH: 'Massive Ordnance',
-  LRFH: 'Special Forces', ARFH: 'Ballistic Missile',
+  LARF: 'Drone Swarm', LARH: 'Main Battle Tank', LAFH: 'Special Forces',
+  LRFH: 'Massive Bomb', ARFH: 'Ballistic Missile',
 
   LARFH: 'Nuke',
 };
 
+// Which units have a skill (defined in RULES.skills), keyed by recipe letters. Only that exact
+// combination has it: a merged unit doesn't inherit its parts' skills.
+const UNIT_SKILLS = {
+  F: ['surveillance'], // Recon Drone, on its own
+  LARFH: ['nuclearDeterrence'], // Nuke: all five
+};
+
 // A merged unit's stats from its parts: attack and defence add up; movement and
 // range are the best of the parts (a placeholder until the real rule is decided).
-// Skills aren't passed on: only the base unit itself has them.
 function mergedStats(parts) {
   const defs = parts.map((p) => BASE_UNITS[p]);
   const sum = (k) => defs.reduce((n, d) => n + d[k], 0);
@@ -69,7 +75,7 @@ function buildUnits() {
     const short = parts.map((p) => BASE_UNITS[p].short).join('');
     const own = parts.length === 1 ? BASE_UNITS[parts[0]] : {};
     units[typeOf(parts)] = Object.assign({ name: NAMES[short], short, parts, tier: parts.length },
-      parts.length === 1 ? own : mergedStats(parts));
+      parts.length === 1 ? own : mergedStats(parts), UNIT_SKILLS[short] ? { skills: UNIT_SKILLS[short] } : {});
   }
   return units;
 }
@@ -101,7 +107,8 @@ const RULES = {
   // this skill is on a hex, the hex can hold that many units in total.
   // cannotCapture: never captures enemy units. cannotTakeCapital: standing on the
   // enemy capital doesn't win. enemyDefence: added to the defence of every enemy
-  // unit on the same hex.
+  // unit on the same hex. mutualStalemate: if both sides have a unit with this skill
+  // on the board, the game ends in a stalemate, with no winner.
   skills: {
     surveillance: {
       name: 'Surveillance',
@@ -111,6 +118,11 @@ const RULES = {
       cannotCapture: true,
       cannotTakeCapital: true,
       enemyDefence: -1,
+    },
+    nuclearDeterrence: {
+      name: 'Nuclear Deterrence',
+      description: 'If the other side also has a unit with Nuclear Deterrence on the board, the game ends in a stalemate: nobody wins.',
+      mutualStalemate: true,
     },
   },
 

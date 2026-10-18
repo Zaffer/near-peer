@@ -1,5 +1,5 @@
 /*
- * Near Peer v2 — game engine.
+ * Near Peer — game engine.
  *
  * Pure functions: apply(state, action) returns a new state or throws a RuleError.
  * Every legality check lives in the action handlers (H.*). Queries such as
@@ -216,6 +216,15 @@ function win(s, p, reason) {
   log(s, `${pname(p)} wins: ${reason}.`, p);
 }
 
+// The game ends in a stalemate, with no winner.
+function stalemate(s, reason) {
+  s.phase = 'over';
+  s.winner = null;
+  s.winReason = reason;
+  log(s, `Stalemate: ${reason}.`, null);
+}
+
+// Has the game ended? A win (elimination, the capital), else a stalemate (Nuclear Deterrence).
 function checkWin(s) {
   for (const p of [s.current, other(s.current)]) {
     const enemy = other(p);
@@ -231,6 +240,12 @@ function checkWin(s) {
         return win(s, p, `took the ${pname(enemy)} capital`);
       }
     }
+  }
+  // Both sides holding a unit with a mutualStalemate skill (the Nuke) ends the game with no winner.
+  const deterrents = [0, 1].map((p) => unitsOf(s, p).find((u) => R.logic.skillFlag(u.type, 'mutualStalemate')));
+  if (deterrents[0] && deterrents[1]) {
+    const names = [...new Set(deterrents.map((u) => R.units[u.type].name))].join(' and ');
+    stalemate(s, `both sides have a ${names} (nuclear deterrence)`);
   }
 }
 

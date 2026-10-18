@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Near Peer v2</title>
+  <title>Near Peer</title>
   <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="style.css">
   <script>
@@ -15,13 +15,26 @@
   </script>
 </head>
 <body>
-  <main class="layout">
-    <section class="board-wrap">
-      <svg id="board" xmlns="http://www.w3.org/2000/svg"></svg>
+  <main class="game">
+    <svg id="board" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div class="topbar">
+      <div id="status" class="status-pill"></div>
+      <button id="menu-open" class="menu-btn" aria-controls="sheet" aria-expanded="false">☰ Menu</button>
+    </div>
+    <div class="dock">
+      <div id="dock-cards" class="dock-cards"></div>
       <div id="hover-info" class="hover-info"></div>
-    </section>
-    <aside id="panel" class="panel"></aside>
+    </div>
   </main>
+  <div id="sheet" class="sheet" hidden>
+    <div class="sheet-inner">
+      <header class="sheet-head title">
+        <h1>Near Peer</h1>
+        <button id="menu-close" class="menu-btn" aria-label="Close menu">✕ Close</button>
+      </header>
+      <div id="panel" class="panel"></div>
+    </div>
+  </div>
   <div id="menu" class="menu" hidden></div>
   <div id="toast" class="toast" hidden></div>
 

@@ -278,7 +278,8 @@ function events(prev, next, actions, ctx) {
   if (next.phase === 'over' && prev.phase !== 'over') {
     const capital = /capital/.test(next.winReason) ? E.capitalOf(next, 1 - next.winner) : null;
     const last = out.captures[out.captures.length - 1];
-    out.win = { player: next.winner, hex: capital || (last && last.hex), capital: !!capital };
+    if (next.winner === null) out.stalemate = true;
+    else out.win = { player: next.winner, hex: capital || (last && last.hex), capital: !!capital };
   } else if (next.phase === 'battle' && prev.phase === 'battle' && next.current !== prev.current) {
     out.turn = next.current;
   }
@@ -346,7 +347,9 @@ function play(prev, next, actions, ctx) {
     expire(g, 600);
   }
 
-  if (ev.win) {
+  if (ev.stalemate) {
+    banner(L, { x: 0, y: 0 }, 'Stalemate', '#6b7280', end + 420, { hold: 1600, big: true });
+  } else if (ev.win) {
     const name = R.players[ev.win.player].name;
     const color = ctx.color(ev.win.player);
     if (ev.win.hex) triumph(L, ctx, ctx.pos(ev.win.hex), color, end + 60);
