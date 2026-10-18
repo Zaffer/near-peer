@@ -987,7 +987,7 @@ function buildCard(st) {
         class: `pick${item === ui.choice() ? ' on' : ''}`,
         style: item === ui.choice() ? `border-color:${P(st.current).color}` : null,
         onclick: () => ui.picked(item),
-      }, h('span', { class: 'pick-name' }, iconEl(kind === 'terrain' ? 'terrain' : 'units', item, kind === 'terrain' ? '#3b3325' : P(st.current).color),
+      }, h('span', { class: 'pick-name' }, iconEl(kind === 'terrain' ? 'terrain' : 'units', item, kind === 'terrain' ? 'currentColor' : P(st.current).color),
         defs[item].name,
         kind === 'units' ? (defs[item].skills || []).map((sk) =>
           h('span', { class: 'pick-skill', title: `${R.skills[sk].name}: ${R.skills[sk].description}` }, iconEl('skills', sk, 'currentColor', 13))) : null),
@@ -1075,6 +1075,21 @@ function styleSelect(label, key, storeKey) {
       [['symbols', 'Symbols'], ['graphic', 'Graphic']].map(([id, name]) => h('option', { value: id, selected: id === ui.settings[key]() }, name))));
 }
 
+// Auto (follow the system) / Light / Dark, remembered in the browser. index.html applies the
+// remembered choice before the page draws, so a dark page doesn't flash light first.
+function themeSelect() {
+  const now = document.documentElement.dataset.theme || 'auto';
+  return h('label', { class: 'setting' }, 'Theme ',
+    h('select', {
+      onchange: (e) => {
+        const v = e.target.value;
+        if (v === 'auto') delete document.documentElement.dataset.theme;
+        else document.documentElement.dataset.theme = v;
+        store.set('theme', v);
+      },
+    }, [['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']].map(([id, name]) => h('option', { value: id, selected: id === now }, name))));
+}
+
 function controlsCard() {
   const toggle = (key, label) => h('label', { class: 'toggle' },
     h('input', { type: 'checkbox', checked: ui.settings[key](), onchange: (e) => ui.settings[key](e.target.checked) }),
@@ -1090,7 +1105,7 @@ function controlsCard() {
       toggle('autoEnd', 'Auto-end turn when nothing is left to do'),
       toggle('threats', 'Show attack arrows on every enemy you can capture'),
       toggle('coords', 'Show hex coordinates')),
-    h('div', { class: 'settings' }, styleSelect('Map', 'mapStyle', 'map-style'), styleSelect('Units', 'unitStyle', 'unit-style')));
+    h('div', { class: 'settings' }, styleSelect('Map', 'mapStyle', 'map-style'), styleSelect('Units', 'unitStyle', 'unit-style'), themeSelect()));
 }
 
 function onlineCard() {

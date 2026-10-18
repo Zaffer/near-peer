@@ -33,6 +33,12 @@ How the rules got to where they are, and the changes still to consider.
 
 Newest first.
 
+### 2026-10-18 — Dark mode
+- **What:** The page has a dark theme. It follows the system setting by default, and the **Theme** picker (Auto / Light / Dark, next to Map and Units) can override that. The choice is remembered in the browser.
+  The side panel, hover bar, buttons, menus and toasts change. The board stays the same in both themes, because it already sits on its own dark table.
+  Each page colour is a `light-dark()` pair in `style.css`, so a new colour only needs adding in one place.
+- **Rules:** None.
+
 ### 2026-10-17 — Online: board turned round for Red, shared pointer, people count; terrain numbers back on the tiles
 - **What:** Online, Red sees the board turned round, so each player's own side is at the bottom (text and pictures stay upright).
   Each player sees a dashed outline in the other's colour on the hex the other's pointer is over. Watchers see both, but their own pointers aren't shared.
