@@ -1,7 +1,7 @@
 /*
- * Near Peer — icons. One stroked SVG path per unit/terrain type, drawn on a
- * 24×24 grid. Keys match the type ids in rules.js; a type without an icon
- * falls back to its letter.
+ * Near Peer — icons. One stroked SVG path per base unit/terrain type, drawn on a
+ * 24×24 grid. Keys match the type ids in rules.js. Merged units have no icon of
+ * their own: they're drawn with the icons of their parts.
  */
 export default {
   units: {
@@ -10,15 +10,15 @@ export default {
     // NATO armour symbol: an oval, like a tank's track loop
     armour: 'M7 7h10a5 5 0 0 1 0 10H7A5 5 0 0 1 7 7z',
     // crosshair
-    ranged: 'M19 12a7 7 0 1 1-14 0a7 7 0 1 1 14 0 M12 2v6 M12 16v6 M2 12h6 M16 12h6',
-    // eye
-    covert: 'M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z M14.5 12a2.5 2.5 0 1 1-5 0a2.5 2.5 0 1 1 5 0',
+    range: 'M19 12a7 7 0 1 1-14 0a7 7 0 1 1 14 0 M12 2v6 M12 16v6 M2 12h6 M16 12h6',
+    // quadcopter from above: body, four arms, four rotors
+    flying: 'M9 9h6v6H9z M9 9L6.5 6.5 M15 9l2.5-2.5 M9 15l-2.5 2.5 M15 15l2.5 2.5 M8 5a3 3 0 1 1-6 0a3 3 0 1 1 6 0 M22 5a3 3 0 1 1-6 0a3 3 0 1 1 6 0 M8 19a3 3 0 1 1-6 0a3 3 0 1 1 6 0 M22 19a3 3 0 1 1-6 0a3 3 0 1 1 6 0',
     // crown
     hero: 'M4 17L3 7l5 4 4-6 4 6 5-4-1 10z M4 21h16',
   },
   skills: {
-    // two people sharing one space
-    insurgency: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M13 7a4 4 0 1 1-8 0a4 4 0 1 1 8 0 M22 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75',
+    // eye
+    surveillance: 'M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z M14.5 12a2.5 2.5 0 1 1-5 0a2.5 2.5 0 1 1 5 0',
   },
   stats: {
     // sword

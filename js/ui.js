@@ -1,5 +1,5 @@
 /*
- * Near Peer — browser UI.
+ * Near Peer v2 — browser UI.
  * Reads state from the engine and sends it actions; it never decides what is
  * legal on its own.
  *
@@ -22,6 +22,8 @@ import { signal, computed, effect, batch, untracked } from './signals.js';
 const SIZE = 54;
 const NS = 'http://www.w3.org/2000/svg';
 const DANGER = '#c026d3'; // "this can be captured" — kept apart from the players' red and blue
+const MERGE = '#d97706'; // "these can merge"
+const TIER = { 1: 'Base unit', 2: 'Pair', 3: 'Triple', 4: 'Special unit', 5: 'Ultimate' };
 const TEXTURE = { minefield: 'hatch' };
 const store = {
   get(k) { try { return localStorage.getItem(`near-peer:${k}`); } catch (e) { return null; } },
@@ -52,6 +54,7 @@ function localGame() {
 const ui = {
   game: signal(localGame()), // this computer's game, or the online one while playing someone over the network
   selection: signal(null), // { id, phase, current, turn }: a unit (own or enemy, for inspection) and when it was picked
+  parts: signal(null), // the selected unit's base units that should move, when splitting it (null = the whole unit)
   hover: signal(null), // hex key
   picked: signal(null), // terrain/unit type picked during the build phase
   pointer: signal(null), // cursor position in board coordinates, for the aim arrow
@@ -76,6 +79,15 @@ ui.selected = computed(() => {
   const same = sel && sel.phase === st.phase && sel.current === st.current && sel.turn === st.turn;
   return same && liveUnit(sel.id) ? sel.id : null;
 });
+// The parts of the selected unit to split off and move, or null to move the whole unit.
+ui.moveParts = computed(() => {
+  const u = liveUnit(ui.selected());
+  const parts = ui.parts();
+  if (!u || !parts) return null;
+  const all = R.units[u.type].parts;
+  const mine = parts.filter((p) => all.includes(p));
+  return mine.length && mine.length < all.length ? mine : null;
+});
 // The piece to place: the one picked, while the player still has one, else their first.
 ui.choice = computed(() => {
   const st = ui.state();
@@ -91,13 +103,17 @@ ui.plans = computed(() => (ui.state(), new Map())); // "unitId>hex" → planned 
 let sharedHover = null; // online: the hex we last told the others our pointer is over
 let suppressClick = false;
 let rulesOpen = false;
+let unitsOpen = false;
 let logOpen = true;
 let layers = null; // the board's <g> layers, made once in mount()
 let animated = null; // the last change whose effects were played
 
 const select = (id) => {
   const st = ui.state();
-  ui.selection(id ? { id, phase: st.phase, current: st.current, turn: st.turn } : null);
+  batch(() => {
+    ui.selection(id ? { id, phase: st.phase, current: st.current, turn: st.turn } : null);
+    ui.parts(null);
+  });
 };
 
 // ---------------------------------------------------------------- helpers
@@ -176,6 +192,13 @@ const skillsEl = (def) => (def.skills || []).length ? h('div', { class: 'skills'
   h('div', { class: 'skill' }, skillTag(sk), h('span', { class: 'muted' }, ` ${R.skills[sk].description}`)))) : null;
 const statLabel = (k, size = 14) => h('span', { class: 'with-icon', title: STAT_NAME[k] }, iconEl('stats', k, 'currentColor', size));
 const unitLabel = (u) => `${P(u.player).name} ${R.units[u.type].name}`;
+// A small round badge for a unit type: its icon, or for a merged unit its recipe letters.
+const unitMini = (type, p) => h('span', { class: `mini${R.units[type].tier > 1 ? ' merged' : ''}`, style: `background:${P(p).color}` },
+  iconEl('units', type, '#fff', 12) || R.units[type].short);
+// "Rifle Squad + Armoured Carrier" for a list of base units.
+const partNames = (parts) => parts.map((b) => R.units[b].name).join(' + ');
+// What a unit of type `a` merging with a unit of type `b` becomes.
+const mergedName = (a, b) => R.units[R.typeOf(R.units[a].parts.concat(R.units[b].parts))].name;
 const buildKind = (st) => (st.phase === 'terrain' ? 'terrain' : st.phase === 'units' ? 'units' : null);
 const liveUnit = (id) => {
   const u = id && ui.state().units[id];
@@ -226,7 +249,13 @@ function commit(action) {
     toast(e.message);
     return false;
   }
-  ui.game().play(actions, next);
+  batch(() => {
+    ui.game().play(actions, next);
+    // After a split or a merge, carry on with the unit that's now moving.
+    const mv = next.turnState.move;
+    const sel = ui.selection();
+    if (mv && next.units[mv.unitId] && !(sel && next.units[sel.id])) select(mv.unitId);
+  });
   return true;
 }
 
@@ -322,18 +351,25 @@ const movesLeft = (s) => (s.turnState.move ? s.turnState.move.remaining : 0);
 // Steps that take a unit to hex `to` this move: fewest steps, then the most
 // movement left. Only the last step may land on an enemy, so the route never
 // fights on the way. Null if it can't get there.
-function findRoute(st, unitId, to, capture = true) {
+// merge: the id of your unit on `to` to merge with there. parts: only these base
+// units go, splitting off from the rest (the first step is then a split).
+function findRoute(st, unitId, to, { capture = true, merge = null, parts = null } = {}) {
+  const u0 = st.units[unitId];
+  const splitting = parts && parts.length < R.units[u0.type].parts.length;
+  const moverId = splitting ? `p${u0.player}-${R.typeOf(parts)}` : unitId;
   let frontier = [{ s: Object.assign({}, st, { log: [] }), steps: [] }];
   const seen = new Set();
   while (frontier.length) {
     let best = null;
     const next = [];
     for (const { s, steps } of frontier) {
-      const u = s.units[unitId];
+      const id = steps.length ? moverId : unitId;
+      const u = s.units[id];
       for (const n of Hex.neighbors(u.hex, R.boardRadius)) {
         const last = n === to;
         if (!last && E.unitsAt(s, n).some((o) => o.player !== u.player)) continue;
-        const a = last ? { type: 'step', unitId, to: n, capture } : { type: 'step', unitId, to: n };
+        const a = !steps.length && splitting ? { type: 'split', unitId, parts, to: n } : { type: 'step', unitId: id, to: n };
+        if (last) Object.assign(a, merge ? { merge } : { capture });
         const s2 = E.tryApply(s, a);
         if (!s2) continue;
         if (last) {
@@ -359,32 +395,60 @@ function canAct(st, u) {
   return !!u && st.phase === 'battle' && u.player === st.current && myTurn(st) && !ts.moveDone && (!ts.move || ts.move.unitId === u.id);
 }
 
+// Your units on hex k that unit `mine` could merge with (not counting the part a split leaves behind).
+const mergePartners = (st, mine, k) => E.unitsAt(st, k).filter((o) => o.player === mine.player && o.id !== mine.id);
+
 // Route to a hex in the current state plus what it captures, cached until the state changes.
+// A plain move if there is one, else a merge with one of your units there (merge: its id).
 function plan(unitId, k) {
   const st = ui.state();
   const plans = ui.plans();
-  const key = `${unitId}>${k}`;
+  const parts = ui.selected() === unitId ? ui.moveParts() : null;
+  const key = `${unitId}>${k}>${parts || ''}`;
   if (!plans.has(key)) {
-    const r = findRoute(st, unitId, k);
+    const mine = st.units[unitId];
+    let r = findRoute(st, unitId, k, { parts });
+    let merge = null;
+    for (const o of r ? [] : mergePartners(st, mine, k)) {
+      r = findRoute(st, unitId, k, { parts, merge: o.id });
+      if (r) { merge = o.id; break; }
+    }
     plans.set(key, r && {
       steps: r.steps,
-      caps: E.unitsAt(st, k).filter((o) => o.player !== st.units[unitId].player && r.s.units[o.id].dead),
+      merge,
+      caps: E.unitsAt(st, k).filter((o) => o.player !== mine.player && r.s.units[o.id].dead),
     });
   }
   return plans.get(key);
 }
 
-// Menu items for moving unit `mine` to hex k (by any route), including "move in beside".
+// Menu items for moving unit `mine` to hex k (by any route): move, move in beside, merge.
+// While splitting, only the chosen parts go.
 function moveItems(st, mine, k) {
   const items = [];
+  const parts = ui.selected() === mine.id ? ui.moveParts() : null;
+  const going = parts ? R.typeOf(parts) : mine.type;
+  const lead = parts ? `Split off ${R.units[going].name}: ` : '';
   const p = plan(mine.id, k);
-  if (!p) return items;
-  const names = p.caps.map((c) => R.units[c.type].name).join(' + ');
-  items.push({ label: p.caps.length ? `Move here and capture ${names}` : 'Move here', run: () => commit(p.steps) });
-  const beside = p.caps.length && findRoute(st, mine.id, k, false);
-  if (beside) items.push({ label: `Move in beside ${names} (no capture)`, run: () => commit(beside.steps) });
+  if (p && !p.merge) {
+    const names = p.caps.map((c) => R.units[c.type].name).join(' + ');
+    items.push({ label: `${lead}${p.caps.length ? `Move here and capture ${names}` : 'Move here'}`, run: () => commit(p.steps) });
+    const beside = p.caps.length && findRoute(st, mine.id, k, { capture: false, parts });
+    if (beside) items.push({ label: `${lead}Move in beside ${names} (no capture)`, run: () => commit(beside.steps) });
+  }
+  for (const o of mergePartners(st, mine, k)) {
+    const r = p && p.merge === o.id ? p : findRoute(st, mine.id, k, { merge: o.id, parts });
+    if (r) items.push({ label: `${lead}Merge with ${R.units[o.type].name} → ${mergedName(going, o.type)}`, merge: true, run: () => commit(r.steps) });
+  }
   return items;
 }
+
+// Merging where you stand with a unit of yours sharing the hex.
+const mergeHereItems = (st, mine) => E.mergeTargets(st, mine.id).map((id) => ({
+  label: `Merge with ${unitName(st, id)} here → ${mergedName(mine.type, st.units[id].type)} (uses your move)`,
+  merge: true,
+  run: () => commit({ type: 'merge', unitId: mine.id, targetId: id }),
+}));
 
 // ---------------------------------------------------------------- input
 
@@ -415,6 +479,7 @@ function onHexClick(k, ev) {
       for (const id of E.captureTargets(st, mine.id)) {
         items.push({ label: `Capture ${unitName(st, id)} here (uses your move)`, run: () => commit({ type: 'capture', unitId: mine.id, targetId: id }) });
       }
+      items.push(...mergeHereItems(st, mine));
     }
     if (k !== mine.hex) items.push(...moveItems(st, mine, k));
   }
@@ -441,7 +506,7 @@ function onHexClick(k, ev) {
 function showMenu(items, x, y) {
   const menu = $('menu');
   menu.replaceChildren(...items.map((it) =>
-    h('button', { class: it.subtle ? 'subtle' : '', onclick: () => { hideMenu(); it.run(); } }, it.label)));
+    h('button', { class: it.subtle ? 'subtle' : it.merge ? 'merge' : '', onclick: () => { hideMenu(); it.run(); } }, it.label)));
   menu.hidden = false;
   const w = menu.offsetWidth;
   const hgt = menu.offsetHeight;
@@ -510,6 +575,7 @@ function drawDefs(defs) {
   };
   marker('arrow-hit', DANGER);
   marker('arrow-miss', '#6b7280');
+  marker('arrow-merge', MERGE);
   R.players.forEach((pl, i) => marker(`arrow-p${i}`, pl.color));
   const hatch = svg('pattern', { id: 'hatch', width: 7, height: 7, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' }, defs);
   svg('line', { x1: 0, y1: 0, x2: 0, y2: 7, stroke: '#fff', 'stroke-opacity': 0.14, 'stroke-width': 3 }, hatch);
@@ -639,8 +705,10 @@ function drawUnit(u, cx, cy, r, parent) {
 
 // Just the counter itself (no rings or stats). Effects use it too, for a unit being captured.
 function drawToken(u, cx, cy, r, g) {
-  const dashed = R.logic.hasSkill(u.type, 'insurgency');
-  if (ui.settings.unitStyle() === 'graphic' && UnitArt.has(u.type)) {
+  const dashed = R.logic.hasSkill(u.type, 'surveillance');
+  if (R.units[u.type].tier > 1) {
+    drawMergedToken(u, cx, cy, r, g);
+  } else if (ui.settings.unitStyle() === 'graphic' && UnitArt.has(u.type)) {
     // Graphic units: an illustrated token (unitart.js, drawn at radius 18) inside a ring in the player's colour.
     const tg = svg('g', { transform: `translate(${cx},${cy}) scale(${r / 18})` }, g);
     svg('circle', { r: 18, fill: P(u.player).tint, filter: 'url(#lift)' }, tg);
@@ -654,6 +722,28 @@ function drawToken(u, cx, cy, r, g) {
     }, g);
     if (!drawIcon('units', u.type, cx, cy, r * 1.15, '#fff', g, { width: 2.6 })) svgText(R.units[u.type].short, cx, cy + 5, 'ulabel', g);
   }
+}
+
+// Where the part icons sit inside a merged unit's token (radius 18), and how big they are, by how many parts it has.
+const PART_SPOTS = {
+  2: { size: 14, at: [[-7, 0], [7, 0]] },
+  3: { size: 12, at: [[0, -6.5], [-7, 5.5], [7, 5.5]] },
+  4: { size: 11, at: [[-6.2, -6.2], [6.2, -6.2], [-6.2, 6.2], [6.2, 6.2]] },
+  5: { size: 9.5, at: [[0, 0], [-8, -6.5], [8, -6.5], [-8, 6.5], [8, 6.5]] },
+};
+
+// A merged unit: a counter carrying the icon of every base unit in it. Special
+// units (4 parts) get a second ring and the Nuke (all 5) a third.
+function drawMergedToken(u, cx, cy, r, g) {
+  const def = R.units[u.type];
+  const color = P(u.player).color;
+  const graphic = ui.settings.unitStyle() === 'graphic';
+  const tg = svg('g', { transform: `translate(${cx},${cy}) scale(${r / 18})` }, g);
+  svg('circle', { r: 18, fill: graphic ? P(u.player).tint : color, filter: 'url(#lift)' }, tg);
+  svg('circle', { r: 17, fill: 'none', stroke: graphic ? color : '#fff', 'stroke-width': graphic ? 2.4 : 2 }, tg);
+  for (let i = 4; i <= def.tier; i++) svg('circle', { r: 17 - (i - 3) * 3.2, fill: 'none', stroke: graphic ? color : '#fff', 'stroke-width': 0.9, opacity: 0.7 }, tg);
+  const spots = PART_SPOTS[def.tier];
+  def.parts.forEach((part, i) => drawIcon('units', part, spots.at[i][0], spots.at[i][1], spots.size, graphic ? color : '#fff', tg, { width: 2.8 }));
 }
 
 function renderOverlay() {
@@ -708,7 +798,9 @@ function drawUnitOverlay(u, primary, under) {
   const canMove = active && !ts.moveDone && (!ts.move || ts.move.unitId === u.id);
   const color = P(u.player).color;
 
-  const reach = canMove ? E.reachable(st, u.id) : active ? [] : E.reachable(st, u.id, { preview: true });
+  const parts = primary ? ui.moveParts() : null;
+  const r = canMove ? E.moveReach(st, u.id, { parts }) : active ? { hexes: [], merges: [] } : E.moveReach(st, u.id, { preview: true });
+  const reach = r.hexes;
   for (const k of reach) {
     svg('polygon', {
       points: points(k, SIZE - 4), stroke: color,
@@ -720,6 +812,13 @@ function drawUnitOverlay(u, primary, under) {
   }
   if (active && primary && E.captureTargets(st, u.id).length) {
     svg('polygon', { points: points(u.hex, SIZE - 9), class: 'step' }, under);
+  }
+  // Units of yours it could merge with: on the way this move, or right where it stands.
+  if (primary && (canMove || !active)) {
+    const here = canMove && !parts ? E.mergeTargets(st, u.id) : [];
+    for (const k of new Set(r.merges.concat(here).map((id) => st.units[id].hex))) {
+      svg('polygon', { points: points(k, SIZE - 6), class: canMove ? 'merge-target' : 'merge-target preview' }, under);
+    }
   }
 
   for (const k of E.hexesInRange(st, u.id)) {
@@ -832,8 +931,8 @@ function drawAim() {
   if (len < from.r + 10) return;
   const k = hexAt(p);
   const route = k && k !== u.hex ? plan(u.id, k) : null;
-  const kind = !route ? 'miss' : route.caps.length ? 'hit' : `p${u.player}`;
-  const color = !route ? '#6b7280' : route.caps.length ? DANGER : P(u.player).color;
+  const kind = !route ? 'miss' : route.caps.length ? 'hit' : route.merge ? 'merge' : `p${u.player}`;
+  const color = !route ? '#6b7280' : route.caps.length ? DANGER : route.merge ? MERGE : P(u.player).color;
   if (route) {
     for (const a of route.steps.slice(0, -1)) {
       const c = pos(a.to);
@@ -927,7 +1026,7 @@ function renderHoverInfo() {
   ];
   for (const u of E.unitsAt(st, k)) {
     const s = E.stats(st, u.id);
-    parts.push(h('span', { class: 'hover-unit' }, ' · ', iconEl('units', u.type, P(u.player).color, 14),
+    parts.push(h('span', { class: 'hover-unit' }, ' · ', unitMini(u.type, u.player),
       `${R.units[u.type].name} `, unitStatsEl(Object.fromEntries(STAT_ORDER.map((n) => [n, s[n].total]))),
       capturable(st, u) ? h('b', { class: 'capt-text' }, ' CAPTURABLE') : null));
   }
@@ -939,7 +1038,8 @@ function renderHoverInfo() {
 function renderPanel() {
   const st = ui.state();
   const sections = [
-    h('header', { class: 'title' }, h('h1', {}, 'Near Peer')),
+    h('header', { class: 'title' }, h('h1', {}, 'Near Peer ', h('span', { class: 'version' }, 'v2')),
+      h('a', { class: 'muted other-version', href: '../' }, 'Back to v1')),
     // What's happening and what you can do now…
     statusCard(st),
     st.phase === 'over' ? winCard(st) : null,
@@ -1016,14 +1116,14 @@ function actionsCard(st) {
   const ts = st.turnState;
   let move = 'ready';
   if (ts.moveDone) move = 'done';
-  else if (ts.move) move = `${R.units[st.units[ts.move.unitId].type].name}: ${ts.move.remaining} left`;
+  else if (ts.move && st.units[ts.move.unitId]) move = `${R.units[st.units[ts.move.unitId].type].name}: ${ts.move.remaining} left`;
   return h('section', { class: 'card' },
     h('h2', {}, 'This turn'),
     h('div', { class: 'pills' }, h('span', { class: `pill${ts.moveDone ? ' done' : ''}` }, `Move: ${move}`)),
     h('div', { class: 'row' },
       h('button', { class: 'primary', disabled: !myTurn(st), onclick: () => commit({ type: 'endTurn' }) }, ts.move || ts.moveDone ? 'End turn (E)' : 'Pass (E)'),
       undoButton()),
-    h('p', { class: 'hint' }, myTurn(st) ? 'Move one unit, then end your turn. Hover any unit to see the attack against it.' : `${waitText()}.`));
+    h('p', { class: 'hint' }, myTurn(st) ? 'Move one unit, then end your turn. Move onto one of your own units to merge with it.' : `${waitText()}.`));
 }
 
 function selectedCard(st) {
@@ -1043,6 +1143,15 @@ function selectedCard(st) {
 
   const mine = st.phase === 'battle' && u.player === st.current && myTurn(st);
   const captures = mine ? E.captureTargets(st, u.id) : [];
+  const mergesHere = mine ? mergeHereItems(st, u) : [];
+  const mergeBox = mergesHere.length ? h('div', { class: 'targets' },
+    h('h3', {}, 'Merge on this hex'),
+    mergesHere.map((it, i) => {
+      const id = E.mergeTargets(st, u.id)[i];
+      return h('div', { class: 'target' },
+        h('span', {}, `${unitName(st, id)} → `, h('b', {}, mergedName(u.type, st.units[id].type))),
+        h('button', { class: 'merge', onclick: it.run }, 'Merge (uses move)'));
+    })) : null;
   const captureBox = captures.length ? h('div', { class: 'targets' },
     h('h3', {}, 'Capturable on this hex'),
     captures.map((id) => h('div', { class: 'target' },
@@ -1062,10 +1171,11 @@ function selectedCard(st) {
       : h('div', { class: 'muted' }, 'No enemy in range.'));
 
   return h('section', { class: 'card' },
-    h('h2', {}, h('span', { class: 'mini', style: `background:${P(u.player).color}` }, iconEl('units', u.type, '#fff', 12)), unitLabel(u),
+    h('h2', {}, unitMini(u.type, u.player), unitLabel(u),
       capturable(st, u) ? h('span', { class: 'tag capt' }, 'capturable') : null),
-    h('div', { class: 'muted with-icon' }, iconEl('terrain', u.hex && st.hexes[u.hex].terrain), `On ${terr.name}`, Object.keys(terr.mods).length ? modsEl(terr.mods) : null),
+    h('div', { class: 'muted with-icon' }, `${TIER[def.tier]} · `, iconEl('terrain', u.hex && st.hexes[u.hex].terrain), `On ${terr.name}`, Object.keys(terr.mods).length ? modsEl(terr.mods) : null),
     skillsEl(def),
+    partsEl(st, u),
     h('table', { class: 'stats' },
       h('tr', {}, h('th', {}, ''), h('th', {}, 'base'), h('th', {}, 'terrain'), h('th', {}, 'now')),
       row('attack', h('span', { class: 'with-icon' }, iconEl('stats', 'attack', 'currentColor', 14), 'Attack')),
@@ -1073,7 +1183,34 @@ function selectedCard(st) {
       row('movement', h('span', { class: 'with-icon' }, iconEl('stats', 'movement', 'currentColor', 14), 'Movement')),
       row('range', h('span', { class: 'with-icon' }, iconEl('stats', 'range', 'currentColor', 14), 'Range'))),
     captureBox,
+    mergeBox,
     threat);
+}
+
+// A merged unit's base units. While it's yours to move, each one is a toggle:
+// untick some and only the ticked ones move, splitting off from the rest.
+function partsEl(st, u) {
+  const def = R.units[u.type];
+  if (def.tier === 1) return null;
+  const ts = st.turnState;
+  const canSplit = canAct(st, u) && !ts.move;
+  const moving = ui.moveParts() || def.parts;
+  const toggle = (part) => {
+    const next = moving.includes(part) ? moving.filter((x) => x !== part) : moving.concat(part);
+    ui.parts(next.length ? next : null);
+  };
+  const chips = def.parts.map((part) => h(canSplit ? 'button' : 'span', {
+    class: `part${moving.includes(part) ? ' on' : ''}`,
+    title: canSplit ? (moving.includes(part) ? 'Leave this part behind' : 'Take this part along') : null,
+    onclick: canSplit ? () => toggle(part) : null,
+  }, iconEl('units', part, 'currentColor', 13), R.units[part].name));
+  const staying = def.parts.filter((x) => !moving.includes(x));
+  return h('div', { class: 'parts-box' },
+    h('div', { class: 'parts' }, chips),
+    !canSplit ? null : staying.length
+      ? h('p', { class: 'hint' }, 'Splitting: ', h('b', {}, R.units[R.typeOf(moving)].name), ' moves, ',
+        h('b', {}, R.units[R.typeOf(staying)].name), ' stays. ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); ui.parts(null); } }, 'Move it all'))
+      : h('p', { class: 'hint' }, 'Untick parts to leave them behind and split the unit.'));
 }
 
 // A Symbols / Graphic picker for one of the drawing styles, remembered in the browser.
@@ -1156,18 +1293,21 @@ function peopleTag(o) {
     `${playing} playing · ${watching} watching`);
 }
 
+// Each side's units: on the board (merged ones by their merged name), still to place, and captured.
 function armiesCard(st) {
-  const col = (p) => h('div', { class: 'army' },
-    h('h3', {}, chip(p), P(p).name),
-    R.army.map((type) => {
-      const u = Object.values(st.units).find((x) => x.player === p && x.type === type);
-      const status = !u ? 'not placed' : u.dead ? 'defeated' : E.terrainAt(st, u.hex).name;
-      return h('div', {
-        class: `army-row${u && u.dead ? ' dead' : ''}${u && ui.selected() === u.id ? ' on' : ''}`,
-        onclick: () => { if (u && !u.dead) select(u.id); },
-      }, h('span', { class: 'mini', style: `background:${P(p).color}` }, iconEl('units', type, '#fff', 12) || R.units[type].short),
-      R.units[type].name, h('span', { class: 'muted' }, ` · ${status}`));
-    }));
+  const row = (p, type, status, u) => h('div', {
+    class: `army-row${u && u.dead ? ' dead' : ''}${u && ui.selected() === u.id ? ' on' : ''}`,
+    onclick: () => { if (u && !u.dead) select(u.id); },
+    title: R.units[type].tier > 1 ? partNames(R.units[type].parts) : null,
+  }, unitMini(type, p), h('span', {}, R.units[type].name, h('span', { class: 'muted' }, ` · ${status}`)));
+  const col = (p) => {
+    const units = Object.values(st.units).filter((u) => u.player === p);
+    return h('div', { class: 'army' },
+      h('h3', {}, chip(p), P(p).name),
+      units.filter((u) => !u.dead).map((u) => row(p, u.type, E.terrainAt(st, u.hex).name, u)),
+      st.supply[p].units.map((type) => row(p, type, 'not placed', null)),
+      units.filter((u) => u.dead).map((u) => row(p, u.type, 'captured', u)));
+  };
   return h('section', { class: 'card armies' }, col(0), col(1));
 }
 
@@ -1185,11 +1325,11 @@ function logCard(st) {
 // sentences follow its option switches, so this stays true when the game is tuned.
 function rulesCard(st) {
   const o = st.options;
-  const covert = R.units.covert.name;
+  const drone = R.units.flying.name;
   const win = [
     o.winByCapital && (o.capitalNeedsNoEnemyPresent
-      ? `stand on the enemy capital with no enemy unit on it (a ${covert} wins even if there is one)`
-      : 'stand on the enemy capital'),
+      ? `stand on the enemy capital with no enemy unit on it (a ${drone} can't take it)`
+      : `stand on the enemy capital (a ${drone} can't take it)`),
     o.winByElimination && 'defeat every enemy unit',
   ].filter(Boolean).join(', or ');
   const rules = [
@@ -1201,25 +1341,49 @@ function rulesCard(st) {
       + '(counted in hexes, no line of sight needed), terrain included. Step onto an enemy whose defence is no more than that '
       + 'and it is captured; a dashed magenta ring marks the ones you can take. '
       + (o.captureEndsMove ? 'Capturing ends the move.' : 'Capturing doesn\'t end the move, so one unit can capture several times in a turn.')],
-    ['Sharing hexes', `A hex holds one unit, or two if one is a ${covert}. A ${covert} can also pass through occupied hexes. `
-      + (o.normalUnitsCanJoinOccupiedHex ? '' : `Only a ${covert} can move onto an occupied hex. `)
+    ['Sharing hexes', `A hex holds one unit, or two if one is a ${drone}. A ${drone} can also fly through occupied hexes, `
+      + `and an enemy unit sharing its hex has −1 defence, but it can't capture. `
+      + (o.normalUnitsCanJoinOccupiedHex ? '' : `Only a ${drone} can move onto an occupied hex. `)
       + 'A unit sharing a hex with an enemy can capture it without moving.'],
+    ['Merging', 'Move a unit onto another of yours to merge them into one new unit'
+      + (o.mergeEndsMove ? ', which ends the move' : '') + '. Two of your units sharing a hex can merge where they stand. '
+      + 'Attack and defence add up; movement and range are the best of the parts. Any mix of your five base units makes a different unit: 31 in all.'],
+    ['Splitting', 'Select a merged unit and untick the parts to leave behind. The rest split off and move as their own unit, with its own movement.'],
     ['Winning', `${win[0].toUpperCase()}${win.slice(1)}.`],
   ];
   const d = h('details', { class: 'card', open: rulesOpen },
     h('summary', {}, 'Rules'),
     h('div', { class: 'rules' }, rules.map(([title, text]) => h('p', {}, h('strong', {}, `${title}. `), text))),
-    h('table', { class: 'ref' },
-      h('tr', {}, h('th', {}, 'Unit'), STAT_ORDER.map((k) => h('th', {}, statLabel(k, 13))), h('th', {}, 'Skill')),
-      Object.entries(R.units).map(([id, u]) => h('tr', {},
-        h('td', { class: 'with-icon' }, iconEl('units', id), u.name),
-        [u.attack, u.defence, u.movement, u.range].map((x) => h('td', {}, x)),
-        h('td', {}, (u.skills || []).map((sk) => skillTag(sk)))))),
+    unitTable([['Unit', R.base]], true),
+    unitsDetails(),
     h('table', { class: 'ref' },
       h('tr', {}, h('th', {}, 'Terrain'), h('th', {}, 'Effect')),
       Object.entries(R.terrain).filter(([, t]) => Object.keys(t.mods).length).map(([id, t]) =>
         h('tr', {}, h('td', { class: 'with-icon' }, iconEl('terrain', id), t.name), h('td', {}, modsEl(t.mods))))));
   d.addEventListener('toggle', () => { rulesOpen = d.open; });
+  return d;
+}
+
+// A reference table of unit types with their stats (and skills, for the base units).
+// groups: [[heading, [type, …]], …], each heading a row of its own after the first.
+function unitTable(groups, skills) {
+  const head = (title) => h('tr', {}, h('th', {}, title), STAT_ORDER.map((k) => h('th', {}, statLabel(k, 13))), skills ? h('th', {}, 'Skill') : null);
+  return h('table', { class: 'ref' }, groups.map(([title, types]) => [head(title), types.map((id) => {
+    const u = R.units[id];
+    return h('tr', { title: u.tier > 1 ? partNames(u.parts) : null },
+      h('td', { class: 'with-icon' }, u.tier > 1 ? h('span', { class: 'recipe' }, u.short) : iconEl('units', id), u.name),
+      [u.attack, u.defence, u.movement, u.range].map((x) => h('td', {}, x)),
+      skills ? h('td', {}, (u.skills || []).map((sk) => skillTag(sk))) : null);
+  })]));
+}
+
+// Every merged unit, by how many base units are in it.
+function unitsDetails() {
+  const ofTier = (tier) => Object.keys(R.units).filter((t) => R.units[t].tier === tier);
+  const d = h('details', { class: 'all-units', open: unitsOpen },
+    h('summary', {}, 'All 31 units'),
+    unitTable([['Pairs', ofTier(2)], ['Triples', ofTier(3)], ['Special units', ofTier(4)], ['Ultimate', ofTier(5)]], false));
+  d.addEventListener('toggle', () => { unitsOpen = d.open; });
   return d;
 }
 

@@ -262,3 +262,25 @@ details[open] > summary { margin-bottom: 8px; }
 .tmods-text { font-size: 10px; font-weight: 700; text-anchor: middle; }
 .tmods-text.buff { fill: var(--good); }
 .tmods-text.debuff { fill: var(--hit); }
+
+/* ---- v2: merging and splitting ---- */
+.title .version { font-size: 13px; font-weight: 800; padding: 1px 7px; border-radius: 999px; background: var(--merge-bg); color: var(--merge-ink); vertical-align: middle; }
+.title .other-version { margin-left: auto; font-size: 12px; }
+:root {
+  --merge-bg: light-dark(#fef3c7, #45300c);
+  --merge-ink: light-dark(#92400e, #fcd34d);
+}
+.merge-target { fill: #d97706; fill-opacity: .12; stroke: #d97706; stroke-width: 3; stroke-dasharray: 3 4; }
+.merge-target.preview { fill: none; stroke-width: 2; stroke-opacity: .8; }
+.menu button.merge, button.merge { color: var(--merge-ink); }
+.targets button.merge { background: var(--merge-bg); border-color: #d97706; }
+.mini.merged { width: auto; min-width: 17px; padding: 0 4px; border-radius: 9px; font-size: 9px; letter-spacing: .02em; }
+.parts-box { margin-top: 6px; }
+.parts { display: flex; flex-wrap: wrap; gap: 4px; }
+.part { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--edge); background: var(--soft); color: var(--muted); text-decoration: line-through; }
+.part.on { background: var(--merge-bg); color: var(--merge-ink); border-color: #d97706; text-decoration: none; }
+span.part { text-decoration: none; color: var(--ink); background: var(--soft); border-color: var(--line); }
+.parts-box .hint { margin: 5px 0 0; }
+.recipe { display: inline-block; min-width: 34px; font-size: 10.5px; font-weight: 800; color: var(--merge-ink); letter-spacing: .03em; }
+.all-units { margin-top: 8px; }
+.all-units > summary { font-size: 12.5px; }

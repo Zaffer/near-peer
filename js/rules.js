@@ -1,11 +1,79 @@
 /*
- * Near Peer — the rules, in one place.
+ * Near Peer v2 — the rules, in one place.
  *
  * Stats, terrain, zones, option switches and the few small rule functions all
  * live here, so the game can be tuned without touching the engine or the UI.
  * Options marked "later idea" are switches for variants we've discussed but
  * not adopted yet.
+ *
+ * v2 adds merging: any of your units can merge into one new unit. A unit's type
+ * is the set of base units in it, written as their ids joined by "+" in BASE
+ * order (e.g. "light+armour+range"), so all 31 types are built below from the
+ * five base units and the names in NAMES. See UNITS.md for the design.
  */
+
+// The five base units, in recipe order. Each player has one of each.
+const BASE = ['light', 'armour', 'range', 'flying', 'hero'];
+
+// skills: special abilities, defined in `skills` below.
+const BASE_UNITS = {
+  light:  { short: 'L', attack: 1, defence: 1, movement: 1, range: 1 },
+  armour: { short: 'A', attack: 0, defence: 2, movement: 1, range: 1 },
+  range:  { short: 'R', attack: 2, defence: 0, movement: 1, range: 2 },
+  flying: { short: 'F', attack: 0, defence: 0, movement: 2, range: 1, skills: ['surveillance'] },
+  hero:   { short: 'H', attack: 2, defence: 2, movement: 1, range: 1 },
+};
+
+// Every unit's name, keyed by its recipe letters (BASE_UNITS short codes, in BASE order).
+const NAMES = {
+  L: 'Rifle Squad', A: 'Armoured Carrier', R: 'Mortar Team', F: 'Recon Drone', H: 'Commander',
+
+  LA: 'Infantry Fighting Vehicle', LR: 'Machine Gunner', LF: 'Drone Operators', LH: 'Scout Team',
+  AR: 'Howitzer', AF: 'Transport Helicopter', AH: 'Combat Engineers', RF: 'Long-Range Drone',
+  RH: 'Sniper', FH: 'Attack Helicopter',
+
+  LAR: 'Main Battle Tank', LAF: 'Heliborne Troops', LAH: 'Assault Brigade', LRF: 'Bomber Drones',
+  LRH: 'Rocket Artillery', LFH: 'Paratroopers', ARF: 'Strategic Bomber', ARH: 'Air Defence',
+  AFH: 'Gunship', RFH: 'Stealth Fighter',
+
+  LARF: 'Drone Swarm', LARH: 'Electronic Warfare', LAFH: 'Massive Ordnance',
+  LRFH: 'Special Forces', ARFH: 'Ballistic Missile',
+
+  LARFH: 'Nuke',
+};
+
+// A merged unit's stats from its parts: attack and defence add up; movement and
+// range are the best of the parts (a placeholder until the real rule is decided).
+// Skills aren't passed on: only the base unit itself has them.
+function mergedStats(parts) {
+  const defs = parts.map((p) => BASE_UNITS[p]);
+  const sum = (k) => defs.reduce((n, d) => n + d[k], 0);
+  const best = (k) => Math.max(...defs.map((d) => d[k]));
+  return { attack: sum('attack'), defence: sum('defence'), movement: best('movement'), range: best('range') };
+}
+
+// The type id for a set of base units: their ids in BASE order, joined by "+".
+const typeOf = (parts) => BASE.filter((b) => parts.includes(b)).join('+');
+
+// Every set of base units, smallest first, each size in recipe order (L, A, R, F, H): LA, LR, LF, …
+function allRecipes() {
+  const sets = [];
+  for (let mask = 1; mask < 1 << BASE.length; mask++) sets.push(BASE.filter((b, i) => mask & (1 << i)));
+  const rank = (parts) => parts.map((p) => BASE.indexOf(p));
+  return sets.sort((a, b) => a.length - b.length || String(rank(a)).localeCompare(String(rank(b))));
+}
+
+function buildUnits() {
+  const units = {};
+  for (const parts of allRecipes()) {
+    const short = parts.map((p) => BASE_UNITS[p].short).join('');
+    const own = parts.length === 1 ? BASE_UNITS[parts[0]] : {};
+    units[typeOf(parts)] = Object.assign({ name: NAMES[short], short, parts, tier: parts.length },
+      parts.length === 1 ? own : mergedStats(parts));
+  }
+  return units;
+}
+
 const RULES = {
   boardRadius: 2, // 3 hexes per side = 19 hexes (Catan layout)
 
@@ -24,25 +92,25 @@ const RULES = {
     ['0,-2', '1,-2', '2,-2', '-1,-1', '0,-1', '1,-1', '2,-1', '-2,0', '-1,0', '0,0'],
   ],
 
-  // skills: special abilities, defined in `skills` below.
-  units: {
-    light:  { name: 'Light',  short: 'L', attack: 2, defence: 2, movement: 2, range: 1 },
-    armour: { name: 'Armour', short: 'A', attack: 1, defence: 3, movement: 1, range: 1 },
-    ranged: { name: 'Ranged', short: 'R', attack: 3, defence: 1, movement: 1, range: 2 },
-    covert: { name: 'Covert', short: 'C', attack: 1, defence: 1, movement: 1, range: 1, skills: ['insurgency'] },
-    hero:   { name: 'Hero',   short: 'H', attack: 3, defence: 3, movement: 1, range: 1 },
-  },
+  base: BASE,
+  // All 31 unit types, keyed by type id: { name, short, parts, tier, attack, defence, movement, range, skills? }.
+  units: buildUnits(),
+  typeOf,
 
   // Special skills. A hex normally holds one unit. hexCapacity: while a unit with
   // this skill is on a hex, the hex can hold that many units in total.
-  // takesOccupiedCapital: standing on the enemy capital wins even if an enemy unit is there.
+  // cannotCapture: never captures enemy units. cannotTakeCapital: standing on the
+  // enemy capital doesn't win. enemyDefence: added to the defence of every enemy
+  // unit on the same hex.
   skills: {
-    insurgency: {
-      name: 'Insurgency',
-      description: 'Dual occupancy: can share a hex with one other unit, friend or enemy, and pass through occupied hexes. '
-        + 'Takes the enemy capital even when an enemy unit is on it.',
+    surveillance: {
+      name: 'Surveillance',
+      description: 'Can share a hex with one other unit, friend or enemy, and pass through occupied hexes. '
+        + 'An enemy unit on its hex has −1 defence. Can\'t capture units or take the capital.',
       hexCapacity: 2,
-      takesOccupiedCapital: true,
+      cannotCapture: true,
+      cannotTakeCapital: true,
+      enemyDefence: -1,
     },
   },
 
@@ -58,17 +126,18 @@ const RULES = {
     minefield: { name: 'Minefield', mods: { movement: -1 } },
   },
 
-  army: ['light', 'armour', 'ranged', 'covert', 'hero'],
+  army: BASE.slice(),
   terrainSet: ['capital', 'town', 'road', 'fortification', 'minefield'],
 
   options: {
     captureEndsMove: false,             // later idea: defeating a unit ends the capturing unit's move
     roadBonusOncePerHexPerMove: true,   // stops a unit bouncing between two roads forever
-    normalUnitsCanJoinOccupiedHex: true, // later idea: false = only Insurgency units may move onto another unit's hex
+    normalUnitsCanJoinOccupiedHex: true, // later idea: false = only Surveillance units may move onto another unit's hex
     allowSameHexAttack: true,           // a unit on the same hex as an enemy (distance 0) adds to attacks on it
     winByCapital: true,
-    capitalNeedsNoEnemyPresent: true,   // an enemy covert sharing the capital blocks the win (unless you take it with Insurgency)
+    capitalNeedsNoEnemyPresent: true,   // an enemy unit sharing the capital (e.g. a Recon Drone) blocks the win
     winByElimination: true,
+    mergeEndsMove: true,                // merging into another unit is the end of the move
   },
 
   // ---- The small rule functions. Change behaviour here. ----
@@ -96,18 +165,28 @@ const RULES = {
       return remaining;
     },
 
+    // Can these two sets of base units merge? Only if they share none.
+    canMerge(partsA, partsB) {
+      return !partsA.some((p) => partsB.includes(p));
+    },
+
     // Does a unit type have a skill?
     hasSkill(type, skill) {
       return (RULES.units[type].skills || []).includes(skill);
     },
 
-    // Does any of this unit type's skills have `flag` set (e.g. takesOccupiedCapital)?
+    // Does any of this unit type's skills have `flag` set (e.g. cannotCapture)?
     skillFlag(type, flag) {
       return (RULES.units[type].skills || []).some((sk) => RULES.skills[sk][flag]);
     },
 
+    // The sum of a numeric skill flag over a unit type's skills (e.g. enemyDefence).
+    skillSum(type, flag) {
+      return (RULES.units[type].skills || []).reduce((n, sk) => n + (RULES.skills[sk][flag] || 0), 0);
+    },
+
     // How many units a hex can hold given who is on it: 1, or more if one of
-    // them has a skill with a bigger hexCapacity (e.g. Insurgency).
+    // them has a skill with a bigger hexCapacity (e.g. Surveillance).
     hexCapacity(types) {
       let cap = 1;
       for (const t of types) {

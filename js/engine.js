@@ -1,5 +1,5 @@
 /*
- * Near Peer — game engine.
+ * Near Peer v2 — game engine.
  *
  * Pure functions: apply(state, action) returns a new state or throws a RuleError.
  * Every legality check lives in the action handlers (H.*). Queries such as
@@ -9,6 +9,14 @@
  * There is no attack action. Attack is passive: stepping onto an enemy captures
  * it when the combined attack of every one of your units in range of it is at
  * least its defence (see assault).
+ *
+ * Merging: a unit stepping onto one of your other units can merge with it into
+ * one new unit (step with merge: targetId), or two of your units already sharing
+ * a hex can merge where they stand (merge). Splitting: part of a merged unit can
+ * step away as a unit of its own (split), leaving the rest behind. A unit's id
+ * is "p<player>-<type>", which is unique because each player has one of each
+ * base unit. Units that merge or split are replaced by the new ones; captured
+ * units stay in s.units with dead: true.
  */
 import R from './rules.js';
 import * as Hex from './hex.js';
@@ -73,17 +81,24 @@ const terrainMod = (s, k, name) => terrainAt(s, k).mods[name] || 0;
 const typeName = (s, id) => R.units[s.units[id].type].name;
 const hexName = (s, k) => `${terrainAt(s, k).name} (${k})`;
 
+// What enemy skills on this unit's hex do to its defence (e.g. Surveillance: −1).
+function spottedMod(s, u) {
+  return unitsAt(s, u.hex).filter((o) => o.player !== u.player)
+    .reduce((n, o) => n + R.logic.skillSum(o.type, 'enemyDefence'), 0);
+}
+
 // { attack: { base, mod, total }, defence: …, movement: …, range: … }
+// mod is everything on top of the unit's own stat: terrain, and for defence any enemy Surveillance on its hex.
 function stats(s, id) {
   const u = s.units[id];
   const base = R.units[u.type];
   const out = {};
   for (const name of ['attack', 'defence', 'movement', 'range']) {
-    const mod = terrainMod(s, u.hex, name);
+    const mod = terrainMod(s, u.hex, name) + (name === 'defence' && u.hex ? spottedMod(s, u) : 0);
     const total = name === 'movement'
       ? R.logic.startMovement(base[name], mod, s.options)
       : Math.max(0, base[name] + mod);
-    // mod is the terrain's effect on *this* stat right now (e.g. standing on a road adds no starting movement).
+    // mod is the effect on *this* stat right now (e.g. standing on a road adds no starting movement).
     out[name] = { base: base[name], mod: total - base[name], total };
   }
   return out;
@@ -117,14 +132,20 @@ function hexesInRange(s, id) {
 }
 
 // Could `unit` step into hex `to` right now? Entering a hex captures every
-// enemy there that the combined attack beats (unless capture is false);
-// whoever is left must be able to share the hex with it.
-function entryCheck(s, unit, to, capture = true) {
+// enemy there that the combined attack beats (unless capture is false, or the
+// unit can't capture); with merge, it merges with that unit of yours there.
+// Whoever is left must be able to share the hex with it.
+function entryCheck(s, unit, to, capture = true, merge = null) {
   const occupants = unitsAt(s, to).filter((o) => o.id !== unit.id);
   const enemies = occupants.filter((o) => o.player !== unit.player);
-  const captures = capture ? enemies.filter((o) => assault(s, o.id).beats) : [];
-  const stays = occupants.filter((o) => !captures.includes(o));
-  const fits = R.logic.canShareHex(stays.map((o) => o.type), unit.type, s.options);
+  const canCapture = capture && !R.logic.skillFlag(unit.type, 'cannotCapture');
+  const captures = canCapture ? enemies.filter((o) => assault(s, o.id).beats) : [];
+  const partner = merge ? occupants.find((o) => o.id === merge) : null;
+  if (merge) need(partner && partner.player === unit.player, 'Merge with one of your units on that hex');
+  if (merge) need(R.logic.canMerge(R.units[unit.type].parts, R.units[partner.type].parts), 'Those units share a base unit');
+  const arriving = merge ? mergedType(unit, partner) : unit.type;
+  const stays = occupants.filter((o) => !captures.includes(o) && o !== partner);
+  const fits = R.logic.canShareHex(stays.map((o) => o.type), arriving, s.options);
   let why = 'That hex is full';
   const strong = enemies.find((o) => !captures.includes(o));
   if (!fits && strong) {
@@ -133,6 +154,9 @@ function entryCheck(s, unit, to, capture = true) {
   }
   return { fits, captures, why };
 }
+
+const mergedType = (a, b) => R.typeOf(R.units[a.type].parts.concat(R.units[b.type].parts));
+const makeId = (p, type) => `p${p}-${type}`;
 
 function capitalOf(s, p) {
   return Object.keys(s.hexes).find((k) => s.hexes[k].owner === p && terrainAt(s, k).capital);
@@ -201,10 +225,9 @@ function checkWin(s) {
     const cap = s.options.winByCapital && capitalOf(s, enemy);
     if (cap) {
       const occ = unitsAt(s, cap);
-      const mine = occ.filter((u) => u.player === p);
+      const mine = occ.filter((u) => u.player === p && !R.logic.skillFlag(u.type, 'cannotTakeCapital'));
       const enemyThere = occ.some((u) => u.player === enemy);
-      const takesAnyway = mine.some((u) => R.logic.skillFlag(u.type, 'takesOccupiedCapital'));
-      if (mine.length && (takesAnyway || !(s.options.capitalNeedsNoEnemyPresent && enemyThere))) {
+      if (mine.length && !(s.options.capitalNeedsNoEnemyPresent && enemyThere)) {
         return win(s, p, `took the ${pname(enemy)} capital`);
       }
     }
@@ -238,36 +261,110 @@ H.placeUnit = (s, { unitType, to }) => {
   need(hex, 'Not a board hex');
   need(hex.zone === s.current, 'You can only place in your own zone');
   need(R.logic.canShareHex(unitsAt(s, to).map((u) => u.type), unitType, s.options), 'That hex is full');
-  let id = `p${s.current}-${unitType}`;
-  for (let n = 2; s.units[id]; n++) id = `p${s.current}-${unitType}-${n}`;
+  let id = makeId(s.current, unitType);
+  for (let n = 2; s.units[id]; n++) id = `${makeId(s.current, unitType)}-${n}`;
   s.units[id] = { id, player: s.current, type: unitType, hex: to, dead: false };
   sup.splice(sup.indexOf(unitType), 1);
   log(s, `placed ${R.units[unitType].name} on ${hexName(s, to)}`);
   advancePlacement(s, 'units');
 };
 
-// Step one hex. Enemies on that hex are captured if the combined attack
-// beats them; capture: false walks in alongside them instead (if they fit).
-H.step = (s, { unitId, to, capture: doCapture = true }) => {
-  needBattle(s);
-  const u = ownUnit(s, unitId);
+// Replace units `from` (all on one hex) with one new unit of the merged type.
+function mergeUnits(s, from) {
+  const [a, b] = from;
+  const type = mergedType(a, b);
+  const id = makeId(a.player, type);
+  need(!s.units[id], 'There is already a unit with that id');
+  s.units[id] = { id, player: a.player, type, hex: b.hex, dead: false };
+  for (const u of from) delete s.units[u.id];
+  return s.units[id];
+}
+
+// Move a unit one hex (shared by step and split). See H.step.
+function moveOne(s, u, to, doCapture, merge) {
   const ts = s.turnState;
-  need(!ts.moveDone, 'You have already moved this turn');
-  need(!ts.move || ts.move.unitId === unitId, `Only your ${ts.move && typeName(s, ts.move.unitId)} can move this turn`);
-  if (!ts.move) ts.move = startMove(s, u);
-  need(ts.move.remaining > 0, `${typeName(s, unitId)} has no movement left`);
+  need(ts.move.remaining > 0, `${typeName(s, u.id)} has no movement left`);
   need(s.hexes[to] && Hex.distance(u.hex, to) === 1, 'You can only step to an adjacent hex');
-  const { fits, captures, why } = entryCheck(s, u, to, doCapture);
+  const { fits, captures, why } = entryCheck(s, u, to, doCapture, merge);
   need(fits, why);
 
-  for (const c of captures) capture(s, unitId, c.id);
+  for (const c of captures) capture(s, u.id, c.id);
   const firstVisit = !ts.move.visited.includes(to);
   u.hex = to;
   ts.move.path.push(to);
   ts.move.visited.push(to);
   ts.move.remaining = R.logic.afterEnter(ts.move.remaining - 1, terrainMod(s, to, 'movement'), firstVisit, s.options);
   if (captures.length && s.options.captureEndsMove) ts.move.remaining = 0;
-  log(s, `${typeName(s, unitId)} → ${hexName(s, to)} (${ts.move.remaining} left)`);
+  if (merge) {
+    const partnerName = typeName(s, merge);
+    const m = mergeUnits(s, [u, s.units[merge]]);
+    ts.move.unitId = m.id;
+    if (s.options.mergeEndsMove) ts.move.remaining = 0;
+    log(s, `${R.units[u.type].name} merged with ${partnerName} on ${hexName(s, to)}: ${R.units[m.type].name}`);
+  } else {
+    log(s, `${typeName(s, u.id)} → ${hexName(s, to)} (${ts.move.remaining} left)`);
+  }
+  if (ts.move.remaining <= 0) ts.moveDone = true;
+  checkWin(s);
+}
+
+const needFreeToMove = (s, id) => {
+  const ts = s.turnState;
+  need(!ts.moveDone, 'You have already moved this turn');
+  need(!ts.move || ts.move.unitId === id, `Only your ${ts.move && typeName(s, ts.move.unitId)} can move this turn`);
+};
+
+// Step one hex. Enemies on that hex are captured if the combined attack
+// beats them; capture: false walks in alongside them instead (if they fit).
+// merge: the id of one of your units on that hex to merge with when you get there.
+H.step = (s, { unitId: id, to, capture: doCapture = true, merge = null }) => {
+  needBattle(s);
+  const u = ownUnit(s, id);
+  needFreeToMove(s, id);
+  if (!s.turnState.move) s.turnState.move = startMove(s, u);
+  moveOne(s, u, to, doCapture, merge);
+};
+
+// Split a merged unit: `parts` (some of its base units) step to `to` as a unit
+// of their own, leaving the rest where they were. This is the first step of the
+// move for the part that leaves, so it can carry on moving (and capture or merge)
+// with its own movement.
+H.split = (s, { unitId: id, parts, to, capture: doCapture = true, merge = null }) => {
+  needBattle(s);
+  const u = ownUnit(s, id);
+  need(!s.turnState.moveDone && !s.turnState.move, 'Splitting has to be the start of your move');
+  const all = R.units[u.type].parts;
+  need(Array.isArray(parts) && parts.length > 0 && parts.every((p) => all.includes(p)), 'Pick some of this unit\'s parts to split off');
+  const rest = all.filter((p) => !parts.includes(p));
+  need(rest.length > 0, 'Choose fewer parts: some have to stay behind');
+  const leaving = { id: makeId(u.player, R.typeOf(parts)), player: u.player, type: R.typeOf(parts), hex: u.hex, dead: false };
+  const staying = { id: makeId(u.player, R.typeOf(rest)), player: u.player, type: R.typeOf(rest), hex: u.hex, dead: false };
+  need(!s.units[leaving.id] && !s.units[staying.id], 'There is already a unit with that id');
+  delete s.units[u.id];
+  s.units[leaving.id] = leaving;
+  s.units[staying.id] = staying;
+  log(s, `split ${R.units[u.type].name} into ${R.units[leaving.type].name} and ${R.units[staying.type].name}`);
+  s.turnState.move = startMove(s, leaving);
+  moveOne(s, leaving, to, doCapture, merge);
+};
+
+// Merge two of your units that already share a hex (e.g. a Recon Drone sitting
+// with another unit). No step is needed, so it works with 0 movement, but it is
+// the move for the turn.
+H.merge = (s, { unitId: id, targetId }) => {
+  needBattle(s);
+  const u = ownUnit(s, id);
+  const t = s.units[targetId];
+  need(t && !t.dead && t.player === s.current && t.id !== u.id, 'Pick another of your units to merge with');
+  need(t.hex === u.hex, 'That unit is not on your hex. Move onto it instead');
+  needFreeToMove(s, id);
+  need(R.logic.canMerge(R.units[u.type].parts, R.units[t.type].parts), 'Those units share a base unit');
+  const ts = s.turnState;
+  if (!ts.move) ts.move = startMove(s, u);
+  const m = mergeUnits(s, [u, t]);
+  ts.move.unitId = m.id;
+  if (s.options.mergeEndsMove) ts.move.remaining = 0;
+  log(s, `${R.units[u.type].name} merged with ${R.units[t.type].name}: ${R.units[m.type].name}`);
   if (ts.move.remaining <= 0) ts.moveDone = true;
   checkWin(s);
 };
@@ -282,8 +379,8 @@ H.capture = (s, { unitId, targetId }) => {
   const t = s.units[targetId];
   need(t && !t.dead && t.player !== s.current, 'Pick an enemy unit to capture');
   need(t.hex === u.hex, 'That unit is not on your hex. Move onto it instead');
-  need(!ts.moveDone, 'You have already moved this turn');
-  need(!ts.move || ts.move.unitId === unitId, `Only your ${ts.move && typeName(s, ts.move.unitId)} can move this turn`);
+  need(!R.logic.skillFlag(u.type, 'cannotCapture'), `A ${typeName(s, unitId)} can't capture`);
+  needFreeToMove(s, unitId);
   const a = assault(s, targetId);
   need(a.beats, `Can't capture the ${typeName(s, targetId)}: your attack ${a.total} vs its defence ${a.defence}`);
   if (!ts.move) ts.move = startMove(s, u);
@@ -373,15 +470,28 @@ function previewState(s, unitId) {
   return p;
 }
 
-// Every hex the unit could end a step on during this move (or next turn's move, with preview).
-function reachable(state, unitId, { preview = false } = {}) {
+// Every hex the unit could end a step on during this move (or next turn's move,
+// with preview), and every unit of yours it could merge with on the way.
+// parts: only those base units move, splitting off from the rest (see H.split).
+// → { hexes: [...], merges: [unitId, …] }
+function moveReach(state, unitId, { preview = false, parts = null } = {}) {
   const start = preview ? previewState(state, unitId) : Object.assign({}, state, { log: [] });
-  const origin = start.units[unitId].hex;
+  const u0 = start.units[unitId];
+  const origin = u0.hex;
+  const all = R.units[u0.type].parts;
+  const splitting = parts && parts.length < all.length;
+  const moverId = splitting ? makeId(u0.player, R.typeOf(parts)) : unitId;
+  const restId = splitting ? makeId(u0.player, R.typeOf(all.filter((p) => !parts.includes(p)))) : null;
   const found = new Set();
+  const merges = new Set();
   const seen = new Set();
-  const walk = (s) => {
+  const first = (n, extra) => (splitting
+    ? Object.assign({ type: 'split', unitId, parts, to: n }, extra)
+    : Object.assign({ type: 'step', unitId, to: n }, extra));
+  const walk = (s, isFirst) => {
     const ts = s.turnState;
-    const u = s.units[unitId];
+    const id = isFirst ? unitId : moverId;
+    const u = s.units[id];
     const sig = [
       u.hex, s.phase, ts.moveDone,
       ts.move ? ts.move.remaining : '',
@@ -391,18 +501,41 @@ function reachable(state, unitId, { preview = false } = {}) {
     if (seen.has(sig)) return;
     seen.add(sig);
     for (const n of Hex.neighbors(u.hex, R.boardRadius)) {
+      const act = (extra) => (isFirst ? first(n, extra) : Object.assign({ type: 'step', unitId: id, to: n }, extra));
       for (const capture of [true, false]) {
-        const next = tryApply(s, { type: 'step', unitId, to: n, capture });
+        const next = tryApply(s, act({ capture }));
         if (next) {
           found.add(n);
-          walk(next);
+          walk(next, false);
         }
+      }
+      for (const o of unitsAt(s, n)) {
+        if (o.player === u.player && o.id !== restId && tryApply(s, act({ merge: o.id }))) merges.add(o.id);
       }
     }
   };
-  walk(start);
+  walk(start, true);
   found.delete(origin);
-  return [...found];
+  return { hexes: [...found], merges: [...merges] };
+}
+
+const reachable = (state, unitId, opts) => moveReach(state, unitId, opts).hexes;
+
+// Your units this unit could merge with without moving (they share its hex).
+function mergeTargets(s, unitId) {
+  const u = s.units[unitId];
+  if (!u || u.dead) return [];
+  return unitsAt(s, u.hex)
+    .filter((t) => isLegal(s, { type: 'merge', unitId, targetId: t.id }))
+    .map((t) => t.id);
+}
+
+// Every way to split this unit: [parts, …] for each proper subset of its base units.
+function splitChoices(type) {
+  const all = R.units[type].parts;
+  const out = [];
+  for (let mask = 1; mask < (1 << all.length) - 1; mask++) out.push(all.filter((p, i) => mask & (1 << i)));
+  return out;
 }
 
 // Is there anything left for the current player to do this turn?
@@ -411,12 +544,17 @@ function hasAnyAction(s) {
   const ts = s.turnState;
   if (ts.moveDone) return false;
   const movers = ts.move ? [s.units[ts.move.unitId]] : unitsOf(s, s.current);
-  return movers.some((u) => !u.dead && (legalSteps(s, u.id).length || captureTargets(s, u.id).length));
+  const live = movers.filter((u) => u && !u.dead);
+  if (live.some((u) => legalSteps(s, u.id).length || captureTargets(s, u.id).length || mergeTargets(s, u.id).length)) return true;
+  if (live.some((u) => moveReach(s, u.id).merges.length)) return true;
+  if (ts.move) return false;
+  return live.some((u) => splitChoices(u.type).some((parts) =>
+    Hex.neighbors(u.hex, R.boardRadius).some((to) => isLegal(s, { type: 'split', unitId: u.id, parts, to }))));
 }
 
 export {
   RuleError,
   newGame, scenario, apply, tryApply, whyIllegal, isLegal,
-  placeAction, legalPlacements, legalSteps, captureTargets, reachable, hasAnyAction,
+  placeAction, legalPlacements, legalSteps, captureTargets, reachable, moveReach, mergeTargets, splitChoices, hasAnyAction,
   aliveUnits, unitsOf, unitsAt, terrainAt, stats, stat, assault, hexesInRange, capitalOf,
 };

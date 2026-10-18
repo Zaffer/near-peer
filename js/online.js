@@ -21,7 +21,7 @@ import * as E from './engine.js';
 import { signal, batch } from './signals.js';
 
 const TRYSTERO = 'https://cdn.jsdelivr.net/npm/trystero@0.25.4/+esm';
-const APP_ID = 'near-peer';
+const APP_ID = 'near-peer-v2'; // v2 games never meet v1 games
 
 // ---------------------------------------------------------------- the game record (pure)
 
@@ -58,8 +58,8 @@ function settleSeat(me, others) {
 
 
 const store = {
-  get(k) { try { return JSON.parse(sessionStorage.getItem(`near-peer:room:${k}`)); } catch (e) { return null; } },
-  set(k, v) { try { sessionStorage.setItem(`near-peer:room:${k}`, JSON.stringify(v)); } catch (e) { /* private window etc. */ } },
+  get(k) { try { return JSON.parse(sessionStorage.getItem(`near-peer-v2:room:${k}`)); } catch (e) { return null; } },
+  set(k, v) { try { sessionStorage.setItem(`near-peer-v2:room:${k}`, JSON.stringify(v)); } catch (e) { /* private window etc. */ } },
 };
 
 const newRoomId = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => 'abcdefghjkmnpqrstuvwxyz23456789'[b % 31]).join('');

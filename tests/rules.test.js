@@ -1,5 +1,5 @@
 /*
- * Near Peer — rule tests. Open tests.html to run them.
+ * Near Peer v2 — rule tests. Open tests.html to run them.
  * Each test builds a small battle scenario and checks one rule. When a rule is
  * changed on purpose, update the test that pins it.
  */
@@ -23,10 +23,13 @@ const eq = (a, b, msg) => {
 };
 const step = (s, unitId, to) => E.apply(s, { type: 'step', unitId, to });
 const share = (s, unitId, to) => E.apply(s, { type: 'step', unitId, to, capture: false });
+const merge = (s, unitId, to, target) => E.apply(s, { type: 'step', unitId, to, merge: target });
+const split = (s, unitId, parts, to, extra) => E.apply(s, Object.assign({ type: 'split', unitId, parts, to }, extra));
 const illegal = (s, action) => ok(E.whyIllegal(s, action), `expected illegal: ${JSON.stringify(action)}`);
 const cannotStep = (s, unitId, to) => illegal(s, { type: 'step', unitId, to });
 // Walk a path and return the state; fails if any step is illegal.
 const walk = (s, unitId, path) => path.reduce((st, to) => step(st, unitId, to), s);
+const alive = (s, id) => s.units[id] && !s.units[id].dead;
 
 // Scenarios with no enemy units would end in an elimination win on the first
 // step, so give any empty side a bystander in a far corner.
@@ -39,6 +42,8 @@ const scenario = (spec) => {
 
 // A straight row through the middle of the board, left to right.
 const ROW = ['-2,0', '-1,0', '0,0', '1,0', '2,0'];
+// A unit with 2 movement and no skill (Rifle Squad + Recon Drone), for the movement rules.
+const M2 = 'light+flying';
 
 // ---------------------------------------------------------------- board & zones
 
@@ -53,6 +58,40 @@ test('zones are 9 and 10 hexes, disjoint, and cover the board', () => {
   ok(R.zones[1].includes('0,0'), 'centre belongs to the second player');
 });
 
+// ---------------------------------------------------------------- units
+
+test('there are 31 unit types, each with its own name', () => {
+  const types = Object.keys(R.units);
+  eq(types.length, 31);
+  eq(new Set(types.map((t) => R.units[t].name)).size, 31);
+  ok(types.every((t) => R.units[t].name), 'every unit has a name');
+  eq(types.filter((t) => R.units[t].tier === 1), R.base);
+});
+
+test('base unit stats', () => {
+  const row = (t) => [R.units[t].name, R.units[t].attack, R.units[t].defence, R.units[t].range, R.units[t].movement];
+  eq(row('light'), ['Rifle Squad', 1, 1, 1, 1]);
+  eq(row('armour'), ['Armoured Carrier', 0, 2, 1, 1]);
+  eq(row('range'), ['Mortar Team', 2, 0, 2, 1]);
+  eq(row('flying'), ['Recon Drone', 0, 0, 1, 2]);
+  eq(row('hero'), ['Commander', 2, 2, 1, 1]);
+});
+
+test('merged units add attack and defence, and take the best movement and range', () => {
+  const mbt = R.units['light+armour+range'];
+  eq([mbt.name, mbt.attack, mbt.defence, mbt.movement, mbt.range], ['Main Battle Tank', 3, 3, 1, 2]);
+  const nuke = R.units['light+armour+range+flying+hero'];
+  eq([nuke.name, nuke.attack, nuke.defence, nuke.movement, nuke.range], ['Nuke', 5, 5, 2, 2]);
+  eq(R.units['light+armour'].name, 'Infantry Fighting Vehicle');
+  eq(R.units['light+range'].name, 'Machine Gunner');
+});
+
+test('only the Recon Drone has a skill (Surveillance)', () => {
+  const skilled = Object.keys(R.units).filter((t) => (R.units[t].skills || []).length);
+  eq(skilled, ['flying']);
+  eq(R.units.flying.skills, ['surveillance']);
+});
+
 // ---------------------------------------------------------------- build phase
 
 test('build phase alternates players and moves on to units, then battle', () => {
@@ -64,6 +103,7 @@ test('build phase alternates players and moves on to units, then battle', () => 
   while (s.phase === 'terrain') s = E.apply(s, E.legalPlacements(s)[0]);
   eq(s.phase, 'units');
   eq(s.current, 0);
+  eq(s.supply[0].units, R.base);
   while (s.phase === 'units') s = E.apply(s, E.legalPlacements(s)[0]);
   eq(s.phase, 'battle');
   eq(s.current, 0);
@@ -79,26 +119,25 @@ test('cannot place terrain on a hex that already has terrain', () => {
 
 // ---------------------------------------------------------------- movement
 
-test('light moves 2 on plain ground', () => {
-  const s = scenario({ units: [{ player: 0, type: 'light', hex: ROW[0] }] });
-  const s2 = walk(s, 'p0-light', [ROW[1], ROW[2]]);
+test('a 2-move unit moves 2 on plain ground', () => {
+  const s = scenario({ units: [{ player: 0, type: M2, hex: ROW[0] }] });
+  const s2 = walk(s, `p0-${M2}`, [ROW[1], ROW[2]]);
   ok(s2.turnState.moveDone);
-  cannotStep(s2, 'p0-light', ROW[3]);
+  cannotStep(s2, `p0-${M2}`, ROW[3]);
 });
 
 test('stepping onto a minefield uses up the rest of the move', () => {
-  const s = scenario({ terrain: { [ROW[1]]: ['minefield', 0] }, units: [{ player: 0, type: 'light', hex: ROW[0] }] });
-  const s2 = step(s, 'p0-light', ROW[1]);
-  ok(s2.turnState.moveDone, 'light should stop on the minefield');
+  const s = scenario({ terrain: { [ROW[1]]: ['minefield', 0] }, units: [{ player: 0, type: M2, hex: ROW[0] }] });
+  ok(step(s, `p0-${M2}`, ROW[1]).turnState.moveDone, 'should stop on the minefield');
 });
 
-test('a light starting on a minefield can move 1', () => {
-  const s = scenario({ terrain: { [ROW[0]]: ['minefield', 0] }, units: [{ player: 0, type: 'light', hex: ROW[0] }] });
-  eq(E.stat(s, 'p0-light', 'movement'), 1);
-  ok(step(s, 'p0-light', ROW[1]).turnState.moveDone);
+test('a 2-move unit starting on a minefield can move 1', () => {
+  const s = scenario({ terrain: { [ROW[0]]: ['minefield', 0] }, units: [{ player: 0, type: M2, hex: ROW[0] }] });
+  eq(E.stat(s, `p0-${M2}`, 'movement'), 1);
+  ok(step(s, `p0-${M2}`, ROW[1]).turnState.moveDone);
 });
 
-test('an armour on a minefield cannot move', () => {
+test('an Armoured Carrier on a minefield cannot move', () => {
   const s = scenario({ terrain: { [ROW[0]]: ['minefield', 0] }, units: [{ player: 0, type: 'armour', hex: ROW[0] }] });
   cannotStep(s, 'p0-armour', ROW[1]);
   eq(E.reachable(s, 'p0-armour'), []);
@@ -106,28 +145,7 @@ test('an armour on a minefield cannot move', () => {
 
 test('a 1-move unit landing on a road gets one more step', () => {
   const s = scenario({ terrain: { [ROW[1]]: ['road', 0] }, units: [{ player: 0, type: 'armour', hex: ROW[0] }] });
-  const s2 = walk(s, 'p0-armour', [ROW[1], ROW[2]]);
-  ok(s2.turnState.moveDone);
-});
-
-test('light: road then plain = 2 moves in total', () => {
-  const s = scenario({ terrain: { [ROW[1]]: ['road', 0] }, units: [{ player: 0, type: 'light', hex: ROW[0] }] });
-  ok(walk(s, 'p0-light', [ROW[1], ROW[2]]).turnState.moveDone);
-});
-
-test('light: plain then road = a 3rd move', () => {
-  const s = scenario({ terrain: { [ROW[2]]: ['road', 0] }, units: [{ player: 0, type: 'light', hex: ROW[0] }] });
-  const s2 = walk(s, 'p0-light', [ROW[1], ROW[2]]);
-  ok(!s2.turnState.moveDone);
-  ok(walk(s2, 'p0-light', [ROW[3]]).turnState.moveDone);
-});
-
-test('light: road, road, road = a 4th move', () => {
-  const s = scenario({
-    terrain: { [ROW[1]]: ['road', 0], [ROW[2]]: ['road', 0], [ROW[3]]: ['road', 1] },
-    units: [{ player: 0, type: 'light', hex: ROW[0] }],
-  });
-  ok(walk(s, 'p0-light', [ROW[1], ROW[2], ROW[3], ROW[4]]).turnState.moveDone);
+  ok(walk(s, 'p0-armour', [ROW[1], ROW[2]]).turnState.moveDone);
 });
 
 test('starting on a road gives no extra movement (only landing on one does)', () => {
@@ -154,48 +172,38 @@ const movesExactly = (type, start, T, path) => {
 };
 const [a, b, c, d, e] = ROW;
 
-test('ex 1: Armour starts on road → plain = 1 move', () => movesExactly('armour', a, { [a]: 'road' }, [b]));
-test('ex 2: Armour starts on road → road → plain = 2 moves', () => movesExactly('armour', a, { [a]: 'road', [b]: 'road' }, [b, c]));
-test('ex 3: Armour plain → road → plain = 2 moves', () => movesExactly('armour', a, { [b]: 'road' }, [b, c]));
-test('ex 4: Light starts on road → plain → plain = 2 moves', () => movesExactly('light', a, { [a]: 'road' }, [b, c]));
-test('ex 5: Light road → plain = 2 moves', () => movesExactly('light', a, { [b]: 'road' }, [b, c]));
-test('ex 6: Light plain → road → plain = 3 moves', () => movesExactly('light', a, { [c]: 'road' }, [b, c, d]));
-test('ex 7: Light road → road → road → plain = 4 moves', () =>
-  movesExactly('light', a, { [b]: 'road', [c]: 'road', [d]: 'road' }, [b, c, d, e]));
-test('ex 8: Light starts on minefield → plain = 1 move', () => movesExactly('light', a, { [a]: 'minefield' }, [b]));
-test('ex 9: Light starts on minefield → road → plain = 2 moves', () => movesExactly('light', a, { [a]: 'minefield', [b]: 'road' }, [b, c]));
-test('ex 10: Armour starts on minefield = cannot move', () => movesExactly('armour', a, { [a]: 'minefield' }, []));
-test('ex 11: Light plain → minefield = 1 move (stops on the mines)', () => movesExactly('light', a, { [b]: 'minefield' }, [b]));
-test('ex 12: Light starts on road → plain → back onto that road → plain = 3 moves', () =>
-  movesExactly('light', b, { [b]: 'road' }, [c, b, a]));
-test('ex 13: Armour plain → road → minefield = 2 moves', () => movesExactly('armour', a, { [b]: 'road', [c]: 'minefield' }, [b, c]));
-test('ex 14: Armour road → road → back onto the first road = 3 moves (each road pays once)', () =>
+test('ex 1: 1-move starts on road → plain = 1 move', () => movesExactly('armour', a, { [a]: 'road' }, [b]));
+test('ex 2: 1-move starts on road → road → plain = 2 moves', () => movesExactly('armour', a, { [a]: 'road', [b]: 'road' }, [b, c]));
+test('ex 3: 1-move plain → road → plain = 2 moves', () => movesExactly('armour', a, { [b]: 'road' }, [b, c]));
+test('ex 4: 2-move starts on road → plain → plain = 2 moves', () => movesExactly(M2, a, { [a]: 'road' }, [b, c]));
+test('ex 5: 2-move road → plain = 2 moves', () => movesExactly(M2, a, { [b]: 'road' }, [b, c]));
+test('ex 6: 2-move plain → road → plain = 3 moves', () => movesExactly(M2, a, { [c]: 'road' }, [b, c, d]));
+test('ex 7: 2-move road → road → road → plain = 4 moves', () =>
+  movesExactly(M2, a, { [b]: 'road', [c]: 'road', [d]: 'road' }, [b, c, d, e]));
+test('ex 8: 2-move starts on minefield → plain = 1 move', () => movesExactly(M2, a, { [a]: 'minefield' }, [b]));
+test('ex 9: 2-move starts on minefield → road → plain = 2 moves', () => movesExactly(M2, a, { [a]: 'minefield', [b]: 'road' }, [b, c]));
+test('ex 10: 1-move starts on minefield = cannot move', () => movesExactly('armour', a, { [a]: 'minefield' }, []));
+test('ex 11: 2-move plain → minefield = 1 move (stops on the mines)', () => movesExactly(M2, a, { [b]: 'minefield' }, [b]));
+test('ex 12: 2-move starts on road → plain → back onto that road → plain = 3 moves', () =>
+  movesExactly(M2, b, { [b]: 'road' }, [c, b, a]));
+test('ex 13: 1-move plain → road → minefield = 2 moves', () => movesExactly('armour', a, { [b]: 'road', [c]: 'minefield' }, [b, c]));
+test('ex 14: 1-move road → road → back onto the first road = 3 moves (each road pays once)', () =>
   movesExactly('armour', a, { [b]: 'road', [c]: 'road' }, [b, c, b]));
 
-test('bouncing between two roads only pays out once per road', () => {
-  const s = scenario({
-    terrain: { [ROW[1]]: ['road', 0], [ROW[2]]: ['road', 1] },
-    units: [{ player: 0, type: 'armour', hex: ROW[0] }],
-  });
-  const s2 = walk(s, 'p0-armour', [ROW[1], ROW[2], ROW[1]]);
-  ok(s2.turnState.moveDone, 'third step back onto a used road should end the move');
-});
-
-test('units cannot step through or onto a friendly normal unit', () => {
+test('units cannot step onto a friendly unit without merging', () => {
   const s = scenario({ units: [{ player: 0, type: 'light', hex: ROW[0] }, { player: 0, type: 'armour', hex: ROW[1] }] });
   cannotStep(s, 'p0-light', ROW[1]);
-  ok(!E.reachable(s, 'p0-light').includes(ROW[2]), 'the hex behind the armour is only reachable through it');
+  ok(!E.reachable(s, 'p0-light').includes(ROW[1]));
 });
 
-test('cannot step onto an enemy normal unit you can\'t beat', () => {
+test('cannot step onto an enemy unit you can\'t beat', () => {
   const s = scenario({ units: [{ player: 0, type: 'light', hex: ROW[0] }, { player: 1, type: 'armour', hex: ROW[1] }] });
-  cannotStep(s, 'p0-light', ROW[1]);
+  cannotStep(s, 'p0-light', ROW[1]); // 1 vs 2
 });
 
 test('only one unit may move per turn', () => {
   const s = scenario({ units: [{ player: 0, type: 'light', hex: ROW[0] }, { player: 0, type: 'hero', hex: ROW[4] }] });
-  const s2 = step(s, 'p0-light', ROW[1]);
-  cannotStep(s2, 'p0-hero', ROW[3]);
+  cannotStep(step(s, 'p0-light', ROW[1]), 'p0-hero', ROW[3]);
 });
 
 test('cannot move an enemy unit', () => {
@@ -203,46 +211,84 @@ test('cannot move an enemy unit', () => {
   cannotStep(s, 'p1-light', ROW[1]);
 });
 
-// ---------------------------------------------------------------- covert & stacking
+// ---------------------------------------------------------------- Surveillance (Recon Drone)
 
-test('covert can share a hex with a friendly or enemy normal unit', () => {
+test('a Recon Drone can share a hex with a friendly or an enemy unit', () => {
   const s = scenario({ units: [
-    { player: 0, type: 'covert', hex: ROW[0] },
+    { player: 0, type: 'flying', hex: ROW[0] },
     { player: 0, type: 'armour', hex: ROW[1] },
     { player: 1, type: 'hero', hex: '-2,1' },
   ] });
-  step(s, 'p0-covert', ROW[1]);
-  step(s, 'p0-covert', '-2,1');
+  share(s, 'p0-flying', ROW[1]);
+  step(s, 'p0-flying', '-2,1');
 });
 
-test('covert cannot join a hex that already holds two units it can\'t beat', () => {
-  const s = scenario({
-    terrain: { [ROW[1]]: ['fortification', 1] },
-    units: [
-      { player: 0, type: 'covert', hex: ROW[0] },
-      { player: 1, type: 'armour', hex: ROW[1] },
-      { player: 1, type: 'covert', hex: ROW[1] },
-    ],
-  });
-  cannotStep(s, 'p0-covert', ROW[1]); // covert 1 vs covert 2 (fortified) and armour 4
+test('a Recon Drone flies through an occupied hex', () => {
+  const s = scenario({ units: [{ player: 0, type: 'flying', hex: ROW[0] }, { player: 1, type: 'hero', hex: ROW[1] }] });
+  eq(walk(s, 'p0-flying', [ROW[1], ROW[2]]).units['p0-flying'].hex, ROW[2]);
 });
 
-test('two coverts can share a hex', () => {
-  const s = scenario({ units: [{ player: 0, type: 'covert', hex: ROW[0] }, { player: 1, type: 'covert', hex: ROW[1] }] });
-  ok(!share(s, 'p0-covert', ROW[1]).units['p1-covert'].dead);
+test('a Recon Drone never captures', () => {
+  const s = scenario({ units: [
+    { player: 0, type: 'flying', hex: ROW[1] },
+    { player: 0, type: 'range', hex: '-2,1' },
+    { player: 1, type: 'range', hex: ROW[2] },
+    { player: 1, type: 'hero', hex: '2,-2' },
+  ] });
+  ok(E.assault(s, 'p1-range').beats, 'the enemy Mortar Team (defence 0) could be captured');
+  const s2 = step(s, 'p0-flying', ROW[2]);
+  ok(alive(s2, 'p1-range'), 'the drone moved in beside it instead');
+  illegal(s2, { type: 'capture', unitId: 'p0-flying', targetId: 'p1-range' });
 });
 
-test('a normal unit may move onto a lone covert without capturing it (for now)', () => {
-  const s = scenario({ units: [{ player: 0, type: 'light', hex: ROW[0] }, { player: 1, type: 'covert', hex: ROW[1] }] });
+test('an enemy unit sharing a hex with a Recon Drone has −1 defence', () => {
+  const s = scenario({ units: [
+    { player: 0, type: 'flying', hex: ROW[2] },
+    { player: 1, type: 'armour', hex: ROW[2] },
+    { player: 1, type: 'range', hex: ROW[4] },
+  ] });
+  eq(E.stats(s, 'p1-armour').defence, { base: 2, mod: -1, total: 1 });
+});
+
+test('Surveillance doesn\'t take defence below 0 or weaken your own units', () => {
+  const s = scenario({ units: [
+    { player: 0, type: 'flying', hex: ROW[2] },
+    { player: 1, type: 'range', hex: ROW[2] },
+  ] });
+  eq(E.stat(s, 'p1-range', 'defence'), 0);
+  const own = scenario({ units: [{ player: 0, type: 'flying', hex: ROW[2] }, { player: 0, type: 'hero', hex: ROW[2] }] });
+  eq(E.stat(own, 'p0-hero', 'defence'), 2);
+});
+
+test('a Recon Drone\'s spotting lets another unit capture', () => {
+  const s = scenario({ units: [
+    { player: 0, type: 'light', hex: ROW[1] },
+    { player: 0, type: 'flying', hex: ROW[2] },
+    { player: 1, type: 'armour', hex: ROW[2] },
+    { player: 1, type: 'hero', hex: ROW[4] },
+  ] });
+  const s2 = step(s, 'p0-light', ROW[2]); // 1 vs 2 − 1, then the Rifle Squad joins its own drone
+  ok(!alive(s2, 'p1-armour'));
+  eq(E.unitsAt(s2, ROW[2]).length, 2);
+});
+
+test('two Recon Drones can share a hex', () => {
+  const s = scenario({ units: [{ player: 0, type: 'flying', hex: ROW[0] }, { player: 1, type: 'flying', hex: ROW[1] }] });
+  ok(alive(share(s, 'p0-flying', ROW[1]), 'p1-flying'));
+});
+
+test('a normal unit may move onto a lone enemy Recon Drone without capturing it (for now)', () => {
+  const s = scenario({ units: [{ player: 0, type: 'light', hex: ROW[0] }, { player: 1, type: 'flying', hex: ROW[1] }] });
   const s2 = share(s, 'p0-light', ROW[1]);
-  ok(!s2.units['p1-covert'].dead);
+  ok(alive(s2, 'p1-flying'));
   eq(E.unitsAt(s2, ROW[1]).length, 2);
+  ok(!alive(step(s, 'p0-light', ROW[1]), 'p1-flying'), 'or capture it');
 });
 
-test('option: only coverts may share hexes', () => {
+test('option: only Surveillance units may share hexes', () => {
   const s = scenario({
     options: { normalUnitsCanJoinOccupiedHex: false },
-    units: [{ player: 0, type: 'light', hex: ROW[0] }, { player: 1, type: 'covert', hex: ROW[1] }],
+    units: [{ player: 0, type: 'light', hex: ROW[0] }, { player: 1, type: 'flying', hex: ROW[1] }],
   });
   illegal(s, { type: 'step', unitId: 'p0-light', to: ROW[1], capture: false });
 });
@@ -257,19 +303,28 @@ test('a unit alone captures when its attack ≥ the defence', () => {
     { player: 1, type: 'armour', hex: ROW[2] },
     { player: 1, type: 'light', hex: ROW[4] },
   ] });
-  ok(step(s, 'p0-hero', ROW[2]).units['p1-armour'].dead, 'hero 3 vs armour 3');
+  ok(!alive(step(s, 'p0-hero', ROW[2]), 'p1-armour'), 'Commander 2 vs Armoured Carrier 2');
+});
+
+test('attack 0 still captures a unit with defence 0', () => {
+  const s = scenario({ units: [
+    { player: 0, type: 'armour', hex: ROW[1] },
+    { player: 1, type: 'range', hex: ROW[2] },
+    { player: 1, type: 'hero', hex: ROW[4] },
+  ] });
+  ok(!alive(step(s, 'p0-armour', ROW[2]), 'p1-range'));
 });
 
 test('units in range add their attacks together', () => {
   const s = scenario({ units: [
     { player: 0, type: 'light', hex: ROW[1] },
-    { player: 0, type: 'covert', hex: '-1,1' },
-    { player: 1, type: 'armour', hex: ROW[2] },
-    { player: 1, type: 'hero', hex: ROW[4] },
+    { player: 0, type: 'range', hex: '-2,1' },
+    { player: 1, type: 'hero', hex: ROW[2] },
+    { player: 1, type: 'armour', hex: ROW[4] },
   ] });
-  const a = E.assault(s, 'p1-armour');
-  eq([a.total, a.defence, a.beats], [3, 3, true], 'light 2 + covert 1 vs armour 3');
-  ok(step(s, 'p0-light', ROW[2]).units['p1-armour'].dead);
+  const at = E.assault(s, 'p1-hero');
+  eq([at.total, at.defence, at.beats], [3, 2, true], 'Rifle Squad 1 + Mortar Team 2 vs Commander 2');
+  ok(!alive(step(s, 'p0-light', ROW[2]), 'p1-hero'));
 });
 
 test('town adds attack, fortification adds defence, capital adds both', () => {
@@ -281,204 +336,277 @@ test('town adds attack, fortification adds defence, capital adds both', () => {
       { player: 1, type: 'hero', hex: ROW[3] },
     ],
   });
-  eq(E.stat(s, 'p0-light', 'attack'), 3);
-  eq(E.stat(s, 'p1-armour', 'defence'), 4);
-  eq(E.stat(s, 'p1-hero', 'attack'), 4);
-  eq(E.stat(s, 'p1-hero', 'defence'), 4);
+  eq(E.stat(s, 'p0-light', 'attack'), 2);
+  eq(E.stat(s, 'p1-armour', 'defence'), 3);
+  eq(E.stat(s, 'p1-hero', 'attack'), 3);
+  eq(E.stat(s, 'p1-hero', 'defence'), 3);
 });
 
-test('ranged adds its attack to anything within 2 hexes, not 3', () => {
+test('a Mortar Team adds its attack to anything within 2 hexes, not 3', () => {
   const s = scenario({ units: [
-    { player: 0, type: 'ranged', hex: ROW[0] },
+    { player: 0, type: 'range', hex: ROW[0] },
     { player: 1, type: 'light', hex: ROW[1] },
     { player: 1, type: 'hero', hex: ROW[2] },
-    { player: 1, type: 'covert', hex: ROW[3] },
+    { player: 1, type: 'armour', hex: ROW[3] },
   ] });
-  eq(E.assault(s, 'p1-hero').total, 3);
-  eq(E.assault(s, 'p1-covert').contributors, []);
-  ok(!E.assault(s, 'p1-covert').beats, 'nobody in range means no capture');
-});
-
-test('a hero on its capital (defence 4) falls to Light + Armour + Covert', () => {
-  const units = [
-    { player: 0, type: 'light', hex: ROW[1] },
-    { player: 0, type: 'armour', hex: '0,1' },
-    { player: 0, type: 'covert', hex: '-1,1' },
-    { player: 1, type: 'hero', hex: ROW[2] },
-    { player: 1, type: 'armour', hex: '2,-2' },
-  ];
-  const terrain = { [ROW[2]]: ['capital', 1] };
-  const s = scenario({ terrain, units });
-  const s2 = step(s, 'p0-light', ROW[2]);
-  ok(s2.units['p1-hero'].dead);
-  eq(s2.winner, 0, 'and the light is now on the capital');
-  const noCovert = scenario({ terrain, units: units.filter((u) => u.type !== 'covert' || u.player !== 0) });
-  cannotStep(noCovert, 'p0-light', ROW[2]); // 2 + 1 = 3 vs 4
-});
-
-test('a unit sharing the target\'s hex adds its attack', () => {
-  const s = scenario({ units: [
-    { player: 0, type: 'light', hex: ROW[1] },
-    { player: 0, type: 'covert', hex: ROW[2] },
-    { player: 1, type: 'armour', hex: ROW[2] },
-    { player: 1, type: 'hero', hex: ROW[4] },
-  ] });
-  const s2 = step(s, 'p0-light', ROW[2]); // 2 + 1 vs 3, then the light joins its own covert
-  ok(s2.units['p1-armour'].dead);
-  eq(E.unitsAt(s2, ROW[2]).length, 2);
+  eq(E.assault(s, 'p1-hero').total, 2);
+  eq(E.assault(s, 'p1-armour').contributors, []);
+  ok(!E.assault(s, 'p1-armour').beats, 'nobody in range means no capture');
 });
 
 test('the moving unit counts from the hex it steps in from, so it can walk up and capture', () => {
   const s = scenario({ units: [
-    { player: 0, type: 'light', hex: ROW[0] },
-    { player: 1, type: 'covert', hex: ROW[2] },
+    { player: 0, type: M2, hex: ROW[0] },
+    { player: 1, type: 'light', hex: ROW[2] },
     { player: 1, type: 'hero', hex: '2,-2' },
   ] });
-  ok(walk(s, 'p0-light', [ROW[1], ROW[2]]).units['p1-covert'].dead);
+  ok(!alive(walk(s, `p0-${M2}`, [ROW[1], ROW[2]]), 'p1-light'));
 });
 
 test('a town only helps while you stand on it', () => {
-  const s = scenario({
-    terrain: { [ROW[1]]: ['town', 0] },
-    units: [
-      { player: 0, type: 'light', hex: ROW[1] },
-      { player: 1, type: 'armour', hex: ROW[2] },
-      { player: 1, type: 'hero', hex: '2,-2' },
-    ],
-  });
-  ok(step(s, 'p0-light', ROW[2]).units['p1-armour'].dead, 'from the town: 3 vs 3');
-  const s2 = scenario({
-    terrain: { [ROW[0]]: ['town', 0] },
-    units: [
-      { player: 0, type: 'light', hex: ROW[0] },
-      { player: 1, type: 'armour', hex: ROW[2] },
-      { player: 1, type: 'hero', hex: '2,-2' },
-    ],
-  });
-  cannotStep(step(s2, 'p0-light', ROW[1]), 'p0-light', ROW[2]); // left the town: 2 vs 3
+  const units = (from) => [
+    { player: 0, type: M2, hex: from },
+    { player: 1, type: 'armour', hex: ROW[2] },
+    { player: 1, type: 'hero', hex: '2,-2' },
+  ];
+  const s = scenario({ terrain: { [ROW[1]]: ['town', 0] }, units: units(ROW[1]) });
+  ok(!alive(step(s, `p0-${M2}`, ROW[2]), 'p1-armour'), 'from the town: 2 vs 2');
+  const s2 = scenario({ terrain: { [ROW[0]]: ['town', 0] }, units: units(ROW[0]) });
+  cannotStep(step(s2, `p0-${M2}`, ROW[1]), `p0-${M2}`, ROW[2]); // left the town: 1 vs 2
 });
 
 test('one move can capture several units', () => {
   const s = scenario({ units: [
-    { player: 0, type: 'light', hex: ROW[0] },
-    { player: 1, type: 'covert', hex: ROW[1] },
-    { player: 1, type: 'ranged', hex: ROW[2] },
+    { player: 0, type: M2, hex: ROW[0] },
+    { player: 1, type: 'flying', hex: ROW[1] },
+    { player: 1, type: 'range', hex: ROW[2] },
     { player: 1, type: 'hero', hex: '2,-2' },
   ] });
-  const s2 = walk(s, 'p0-light', [ROW[1], ROW[2]]);
-  ok(s2.units['p1-covert'].dead && s2.units['p1-ranged'].dead);
+  const s2 = walk(s, `p0-${M2}`, [ROW[1], ROW[2]]);
+  ok(!alive(s2, 'p1-flying') && !alive(s2, 'p1-range'));
 });
 
 test('a stacked hex: beat both units and you capture both', () => {
   const s = scenario({ units: [
-    { player: 0, type: 'light', hex: ROW[1] },
-    { player: 0, type: 'hero', hex: '0,1' },
+    { player: 0, type: 'hero', hex: ROW[1] },
+    { player: 0, type: 'range', hex: ROW[0] },
     { player: 1, type: 'hero', hex: ROW[2] },
-    { player: 1, type: 'covert', hex: ROW[2] },
+    { player: 1, type: 'flying', hex: ROW[2] },
     { player: 1, type: 'armour', hex: '2,-2' },
   ] });
-  const s2 = step(s, 'p0-light', ROW[2]); // 2 + 3 = 5 vs hero 3 and covert 1
-  ok(s2.units['p1-hero'].dead && s2.units['p1-covert'].dead);
+  const s2 = step(s, 'p0-hero', ROW[2]); // 2 + 2 = 4 vs Commander 2 and drone 0
+  ok(!alive(s2, 'p1-hero') && !alive(s2, 'p1-flying'));
 });
 
-test('a stacked hex: beating only the covert is not enough to get in', () => {
+test('a stacked hex: beating only the drone is not enough to get in', () => {
   const s = scenario({ units: [
     { player: 0, type: 'light', hex: ROW[1] },
     { player: 1, type: 'hero', hex: ROW[2] },
-    { player: 1, type: 'covert', hex: ROW[2] },
+    { player: 1, type: 'flying', hex: ROW[2] },
   ] });
-  cannotStep(s, 'p0-light', ROW[2]); // beats the covert (2 vs 1) but not the hero (2 vs 3)
-});
-
-test('you may walk in beside an enemy you could capture (capture: false)', () => {
-  const s = scenario({ units: [
-    { player: 0, type: 'covert', hex: ROW[1] },
-    { player: 1, type: 'ranged', hex: ROW[2] },
-    { player: 1, type: 'hero', hex: '2,-2' },
-  ] });
-  ok(!share(s, 'p0-covert', ROW[2]).units['p1-ranged'].dead);
-  ok(step(s, 'p0-covert', ROW[2]).units['p1-ranged'].dead);
+  cannotStep(s, 'p0-light', ROW[2]); // beats the drone (1 vs 0) but not the Commander (1 vs 2)
 });
 
 test('capturing does not end the move', () => {
   const s = scenario({ units: [
-    { player: 0, type: 'light', hex: ROW[0] },
-    { player: 1, type: 'ranged', hex: ROW[1] },
+    { player: 0, type: M2, hex: ROW[0] },
+    { player: 1, type: 'range', hex: ROW[1] },
     { player: 1, type: 'armour', hex: ROW[4] },
   ] });
-  const s2 = step(s, 'p0-light', ROW[1]);
-  ok(s2.units['p1-ranged'].dead);
+  const s2 = step(s, `p0-${M2}`, ROW[1]);
+  ok(!alive(s2, 'p1-range'));
   ok(!s2.turnState.moveDone);
-  step(s2, 'p0-light', ROW[2]);
+  step(s2, `p0-${M2}`, ROW[2]);
 });
 
 test('capturing on a road gives a 1-move unit another step', () => {
   const s = scenario({
     terrain: { [ROW[1]]: ['road', 1] },
     units: [
-      { player: 0, type: 'armour', hex: ROW[0] },
-      { player: 1, type: 'ranged', hex: ROW[1] },
+      { player: 0, type: 'light', hex: ROW[0] },
+      { player: 1, type: 'range', hex: ROW[1] },
       { player: 1, type: 'hero', hex: ROW[4] },
     ],
   });
-  const s2 = step(s, 'p0-armour', ROW[1]); // armour 1 vs ranged 1
-  ok(s2.units['p1-ranged'].dead);
-  step(s2, 'p0-armour', ROW[2]);
+  const s2 = step(s, 'p0-light', ROW[1]);
+  ok(!alive(s2, 'p1-range'));
+  step(s2, 'p0-light', ROW[2]);
 });
 
 test('option: capturing ends the move', () => {
   const s = scenario({
     options: { captureEndsMove: true },
     units: [
-      { player: 0, type: 'light', hex: ROW[0] },
-      { player: 1, type: 'ranged', hex: ROW[1] },
+      { player: 0, type: M2, hex: ROW[0] },
+      { player: 1, type: 'range', hex: ROW[1] },
       { player: 1, type: 'armour', hex: ROW[4] },
     ],
   });
-  ok(step(s, 'p0-light', ROW[1]).turnState.moveDone);
+  ok(step(s, `p0-${M2}`, ROW[1]).turnState.moveDone);
 });
 
-test('a covert stuck on a minefield can capture an enemy sharing its hex', () => {
+test('a unit stuck on a minefield can capture an enemy drone sharing its hex', () => {
   const s = scenario({
     terrain: { [ROW[2]]: ['minefield', 1] },
     units: [
-      { player: 0, type: 'light', hex: ROW[1] },
-      { player: 0, type: 'covert', hex: ROW[2] },
-      { player: 1, type: 'ranged', hex: ROW[2] },
+      { player: 0, type: 'light', hex: ROW[2] },
+      { player: 1, type: 'flying', hex: ROW[2] },
       { player: 1, type: 'hero', hex: ROW[4] },
     ],
   });
-  eq(E.stat(s, 'p0-covert', 'movement'), 0);
-  eq(E.captureTargets(s, 'p0-covert'), ['p1-ranged']);
-  const s2 = E.apply(s, { type: 'capture', unitId: 'p0-covert', targetId: 'p1-ranged' });
-  ok(s2.units['p1-ranged'].dead);
+  eq(E.stat(s, 'p0-light', 'movement'), 0);
+  eq(E.captureTargets(s, 'p0-light'), ['p1-flying']);
+  const s2 = E.apply(s, { type: 'capture', unitId: 'p0-light', targetId: 'p1-flying' });
+  ok(!alive(s2, 'p1-flying'));
   ok(s2.turnState.moveDone, 'capturing in place used the move (0 movement left)');
 });
 
 test('capturing in place uses the move, so no other unit can move', () => {
   const s = scenario({ units: [
-    { player: 0, type: 'covert', hex: ROW[1] },
-    { player: 0, type: 'light', hex: '-2,2' },
-    { player: 1, type: 'ranged', hex: ROW[1] },
-    { player: 1, type: 'hero', hex: ROW[4] },
+    { player: 0, type: 'light', hex: ROW[1] },
+    { player: 0, type: 'hero', hex: '-2,2' },
+    { player: 1, type: 'flying', hex: ROW[1] },
+    { player: 1, type: 'armour', hex: ROW[4] },
   ] });
-  const s2 = E.apply(s, { type: 'capture', unitId: 'p0-covert', targetId: 'p1-ranged' });
-  cannotStep(s2, 'p0-light', '-1,2');
-  step(s2, 'p0-covert', ROW[2]); // the covert still has its 1 movement
+  const s2 = E.apply(s, { type: 'capture', unitId: 'p0-light', targetId: 'p1-flying' });
+  cannotStep(s2, 'p0-hero', '-1,2');
+  step(s2, 'p0-light', ROW[2]); // the Rifle Squad still has its 1 movement
 });
 
-test('cannot capture in place an enemy you can\'t beat, or after moving another unit', () => {
-  const units = [
-    { player: 0, type: 'covert', hex: ROW[1] },
-    { player: 0, type: 'light', hex: '-2,2' },
-    { player: 1, type: 'hero', hex: ROW[1] },
-    { player: 1, type: 'armour', hex: '2,-2' },
-  ];
-  const capture = { type: 'capture', unitId: 'p0-covert', targetId: 'p1-hero' };
-  illegal(scenario({ units }), capture); // covert 1 vs hero 3
-  const s = scenario({ units: units.concat({ player: 0, type: 'hero', hex: '-1,1' }) });
-  ok(E.isLegal(s, capture), 'covert 1 + hero 3 vs hero 3');
-  illegal(step(s, 'p0-light', '-1,2'), capture);
+// ---------------------------------------------------------------- merging
+
+test('stepping onto one of your units merges them into one new unit', () => {
+  const s = scenario({ units: [{ player: 0, type: 'light', hex: ROW[0] }, { player: 0, type: 'armour', hex: ROW[1] }] });
+  const s2 = merge(s, 'p0-light', ROW[1], 'p0-armour');
+  ok(!s2.units['p0-light'] && !s2.units['p0-armour'], 'the two units are gone');
+  const m = s2.units['p0-light+armour'];
+  eq([m.hex, m.player, R.units[m.type].name], [ROW[1], 0, 'Infantry Fighting Vehicle']);
+  eq([E.stat(s2, m.id, 'attack'), E.stat(s2, m.id, 'defence')], [1, 3]);
+});
+
+test('merging ends the move, even with movement left', () => {
+  const s = scenario({ units: [{ player: 0, type: M2, hex: ROW[0] }, { player: 0, type: 'armour', hex: ROW[1] }] });
+  const s2 = merge(s, `p0-${M2}`, ROW[1], 'p0-armour');
+  ok(s2.turnState.moveDone);
+  eq(s2.turnState.move.unitId, 'p0-light+armour+flying');
+});
+
+test('a unit can walk up to another of yours and merge in one move', () => {
+  const s = scenario({ units: [{ player: 0, type: M2, hex: ROW[0] }, { player: 0, type: 'hero', hex: ROW[2] }] });
+  const s2 = merge(step(s, `p0-${M2}`, ROW[1]), `p0-${M2}`, ROW[2], 'p0-hero');
+  eq(s2.units['p0-light+flying+hero'].hex, ROW[2]);
+  ok(E.moveReach(s, `p0-${M2}`).merges.includes('p0-hero'), 'moveReach lists the merge');
+});
+
+test('merging needs an adjacent unit and movement to get there', () => {
+  const s = scenario({
+    terrain: { [ROW[0]]: ['minefield', 0] },
+    units: [{ player: 0, type: 'light', hex: ROW[0] }, { player: 0, type: 'armour', hex: ROW[1] }, { player: 0, type: 'hero', hex: ROW[3] }],
+  });
+  illegal(s, { type: 'step', unitId: 'p0-light', to: ROW[1], merge: 'p0-armour' }); // 0 movement on the minefield
+  illegal(s, { type: 'step', unitId: 'p0-armour', to: ROW[3], merge: 'p0-hero' }); // two hexes away
+});
+
+test('cannot merge with an enemy unit', () => {
+  const s = scenario({ units: [{ player: 0, type: 'flying', hex: ROW[0] }, { player: 1, type: 'armour', hex: ROW[1] }] });
+  illegal(s, { type: 'step', unitId: 'p0-flying', to: ROW[1], merge: 'p1-armour' });
+});
+
+test('units only merge if they share no base unit', () => {
+  ok(R.logic.canMerge(['light', 'armour'], ['range', 'flying']));
+  ok(!R.logic.canMerge(['light', 'armour'], ['armour', 'range']));
+});
+
+test('two of your units sharing a hex can merge where they stand, even with 0 movement', () => {
+  const s = scenario({
+    terrain: { [ROW[2]]: ['minefield', 0] },
+    units: [
+      { player: 0, type: 'flying', hex: ROW[2] },
+      { player: 0, type: 'hero', hex: ROW[2] },
+      { player: 0, type: 'light', hex: ROW[0] },
+    ],
+  });
+  eq(E.mergeTargets(s, 'p0-hero'), ['p0-flying']);
+  const s2 = E.apply(s, { type: 'merge', unitId: 'p0-hero', targetId: 'p0-flying' });
+  eq(R.units[s2.units['p0-flying+hero'].type].name, 'Attack Helicopter');
+  ok(s2.turnState.moveDone);
+  cannotStep(s2, 'p0-light', ROW[1]);
+});
+
+test('merging onto a hex can capture an enemy drone there first', () => {
+  const s = scenario({ units: [
+    { player: 0, type: 'light', hex: ROW[1] },
+    { player: 0, type: 'hero', hex: ROW[2] },
+    { player: 1, type: 'flying', hex: ROW[2] },
+    { player: 1, type: 'armour', hex: ROW[4] },
+  ] });
+  const s2 = merge(s, 'p0-light', ROW[2], 'p0-hero');
+  ok(!alive(s2, 'p1-flying'));
+  ok(alive(s2, 'p0-light+hero'));
+});
+
+test('merged units can merge again, up to the Nuke', () => {
+  let s = scenario({ units: [
+    { player: 0, type: 'light', hex: ROW[0] },
+    { player: 0, type: 'armour', hex: ROW[1] },
+    { player: 0, type: 'range', hex: ROW[2] },
+    { player: 0, type: 'flying+hero', hex: ROW[3] },
+  ] });
+  const next = (st) => E.apply(st, { type: 'endTurn' });
+  s = next(next(merge(s, 'p0-light', ROW[1], 'p0-armour')));
+  s = next(next(merge(s, 'p0-light+armour', ROW[2], 'p0-range')));
+  eq(R.units[s.units['p0-light+armour+range'].type].name, 'Main Battle Tank');
+  s = merge(s, 'p0-light+armour+range', ROW[3], 'p0-flying+hero');
+  const nuke = s.units['p0-light+armour+range+flying+hero'];
+  eq([R.units[nuke.type].name, E.stat(s, nuke.id, 'attack'), E.stat(s, nuke.id, 'defence')], ['Nuke', 5, 5]);
+  eq(E.unitsOf(s, 0).length, 1);
+});
+
+// ---------------------------------------------------------------- splitting
+
+test('part of a merged unit can split off onto an adjacent hex', () => {
+  const s = scenario({ units: [{ player: 0, type: 'light+armour', hex: ROW[1] }] });
+  const s2 = split(s, 'p0-light+armour', ['light'], ROW[2]);
+  ok(!s2.units['p0-light+armour']);
+  eq(s2.units['p0-light'].hex, ROW[2]);
+  eq(s2.units['p0-armour'].hex, ROW[1]);
+  ok(s2.turnState.moveDone, 'the Rifle Squad has used its 1 movement');
+});
+
+test('the part that splits off moves on with its own movement', () => {
+  const s = scenario({ units: [{ player: 0, type: 'armour+flying', hex: ROW[0] }] });
+  const s2 = split(s, 'p0-armour+flying', ['flying'], ROW[1]);
+  ok(!s2.turnState.moveDone);
+  eq(s2.turnState.move.unitId, 'p0-flying');
+  cannotStep(s2, 'p0-armour', '-2,1'); // the part left behind can't move this turn
+  ok(step(s2, 'p0-flying', ROW[2]).turnState.moveDone);
+  const twoAway = Hex.all(R.boardRadius).filter((k) => k !== ROW[0] && Hex.distance(k, ROW[0]) <= 2);
+  eq(E.reachable(s, 'p0-armour+flying', { parts: ['flying'] }).sort(), twoAway.sort());
+});
+
+test('a split needs some parts to leave and some to stay, and starts the move', () => {
+  const s = scenario({ units: [{ player: 0, type: 'light+armour+hero', hex: ROW[1] }] });
+  illegal(s, { type: 'split', unitId: 'p0-light+armour+hero', parts: ['light', 'armour', 'hero'], to: ROW[2] });
+  illegal(s, { type: 'split', unitId: 'p0-light+armour+hero', parts: [], to: ROW[2] });
+  illegal(s, { type: 'split', unitId: 'p0-light+armour+hero', parts: ['range'], to: ROW[2] });
+  const s2 = split(s, 'p0-light+armour+hero', ['light', 'hero'], ROW[2]);
+  eq(R.units[s2.units['p0-light+hero'].type].name, 'Scout Team');
+  eq(R.units[s2.units['p0-armour'].type].name, 'Armoured Carrier');
+  const moved = step(scenario({ units: [{ player: 0, type: 'light+armour+hero', hex: ROW[0] }, { player: 0, type: 'range', hex: ROW[4] }] }), 'p0-range', ROW[3]);
+  illegal(moved, { type: 'split', unitId: 'p0-light+armour+hero', parts: ['light'], to: ROW[1] });
+});
+
+test('a split-off part can capture, and can merge into another unit', () => {
+  const s = scenario({ units: [
+    { player: 0, type: 'armour+range', hex: ROW[1] },
+    { player: 0, type: 'light', hex: '-1,1' },
+    { player: 1, type: 'flying', hex: ROW[2] },
+    { player: 1, type: 'hero', hex: ROW[4] },
+  ] });
+  ok(!alive(split(s, 'p0-armour+range', ['range'], ROW[2]), 'p1-flying'));
+  const s2 = split(s, 'p0-armour+range', ['range'], '-1,1', { merge: 'p0-light' });
+  eq(R.units[s2.units['p0-light+range'].type].name, 'Machine Gunner');
+  eq(s2.units['p0-armour'].hex, ROW[1]);
 });
 
 // ---------------------------------------------------------------- winning
@@ -496,27 +624,35 @@ test('stepping onto the enemy capital alone wins', () => {
 test('passing through the enemy capital also wins', () => {
   const s = scenario({
     terrain: { [ROW[1]]: ['capital', 1] },
-    units: [{ player: 0, type: 'light', hex: ROW[0] }, { player: 1, type: 'hero', hex: ROW[4] }],
+    units: [{ player: 0, type: M2, hex: ROW[0] }, { player: 1, type: 'hero', hex: ROW[4] }],
   });
-  eq(step(s, 'p0-light', ROW[1]).winner, 0);
+  eq(step(s, `p0-${M2}`, ROW[1]).winner, 0);
 });
 
-test('an enemy covert left on the capital blocks the win', () => {
+test('a Recon Drone can\'t take the capital', () => {
   const s = scenario({
     terrain: { [ROW[2]]: ['capital', 1] },
-    units: [{ player: 0, type: 'light', hex: ROW[1] }, { player: 1, type: 'covert', hex: ROW[2] }, { player: 1, type: 'hero', hex: '2,-2' }],
+    units: [{ player: 0, type: 'flying', hex: ROW[1] }, { player: 1, type: 'hero', hex: ROW[4] }],
   });
-  const s2 = share(s, 'p0-light', ROW[2]);
-  eq(s2.phase, 'battle');
-  eq(s2.winner, null);
-  eq(step(s, 'p0-light', ROW[2]).winner, 0, 'capturing the covert instead wins');
+  const s2 = step(s, 'p0-flying', ROW[2]);
+  eq([s2.phase, s2.winner], ['battle', null]);
 });
 
-test('your own covert on the capital does not block the win', () => {
+test('an enemy unit left on the capital blocks the win', () => {
+  const s = scenario({
+    terrain: { [ROW[2]]: ['capital', 1] },
+    units: [{ player: 0, type: 'light', hex: ROW[1] }, { player: 1, type: 'flying', hex: ROW[2] }, { player: 1, type: 'hero', hex: '2,-2' }],
+  });
+  const s2 = share(s, 'p0-light', ROW[2]);
+  eq([s2.phase, s2.winner], ['battle', null]);
+  eq(step(s, 'p0-light', ROW[2]).winner, 0, 'capturing the drone instead wins');
+});
+
+test('your own Recon Drone on the capital does not block the win', () => {
   const s = scenario({
     terrain: { [ROW[2]]: ['capital', 1] },
     units: [
-      { player: 0, type: 'covert', hex: ROW[2] },
+      { player: 0, type: 'flying', hex: ROW[2] },
       { player: 0, type: 'light', hex: ROW[1] },
       { player: 1, type: 'hero', hex: ROW[4] },
     ],
@@ -524,22 +660,17 @@ test('your own covert on the capital does not block the win', () => {
   eq(step(s, 'p0-light', ROW[2]).winner, 0);
 });
 
-test('a covert (Insurgency) takes the capital even with an enemy unit on it', () => {
+test('merging on the enemy capital wins', () => {
   const s = scenario({
     terrain: { [ROW[2]]: ['capital', 1] },
-    units: [{ player: 0, type: 'covert', hex: ROW[1] }, { player: 1, type: 'hero', hex: ROW[2] }, { player: 1, type: 'armour', hex: '2,-2' }],
+    units: [
+      { player: 0, type: 'flying', hex: ROW[2] },
+      { player: 0, type: 'light', hex: ROW[1] },
+      { player: 1, type: 'hero', hex: ROW[4] },
+    ],
   });
-  const s2 = step(s, 'p0-covert', ROW[2]); // can't beat the hero (1 vs 4), so it walks in beside it
-  ok(!s2.units['p1-hero'].dead);
+  const s2 = merge(s, 'p0-light', ROW[2], 'p0-flying');
   eq(s2.winner, 0);
-});
-
-test('hero + covert on a capital fill it, keeping an enemy covert out', () => {
-  const s = scenario({
-    terrain: { [ROW[2]]: ['capital', 1] },
-    units: [{ player: 0, type: 'covert', hex: ROW[1] }, { player: 1, type: 'hero', hex: ROW[2] }, { player: 1, type: 'covert', hex: ROW[2] }],
-  });
-  cannotStep(s, 'p0-covert', ROW[2]); // 1 vs hero 4 and covert 2
 });
 
 test('defeating the last enemy unit wins', () => {
@@ -565,30 +696,47 @@ test('hasAnyAction is false once the move is spent', () => {
   eq(E.hasAnyAction(step(s, 'p0-hero', ROW[1])), false);
 });
 
-test('a random full game never breaks the rules engine', () => {
+// Every legal action for whoever is to play (steps, captures, merges, splits, end turn).
+function allActions(s) {
+  const acts = [{ type: 'endTurn' }];
+  for (const u of E.unitsOf(s, s.current)) {
+    for (const k of Hex.neighbors(u.hex, R.boardRadius)) {
+      for (const capture of [true, false]) acts.push({ type: 'step', unitId: u.id, to: k, capture });
+      for (const o of E.unitsAt(s, k)) if (o.player === u.player) acts.push({ type: 'step', unitId: u.id, to: k, merge: o.id });
+      for (const parts of E.splitChoices(u.type)) acts.push({ type: 'split', unitId: u.id, parts, to: k });
+    }
+    for (const t of E.captureTargets(s, u.id)) acts.push({ type: 'capture', unitId: u.id, targetId: t });
+    for (const t of E.mergeTargets(s, u.id)) acts.push({ type: 'merge', unitId: u.id, targetId: t });
+  }
+  return acts.filter((x) => E.isLegal(s, x));
+}
+
+test('a random full game with merges and splits never breaks the rules engine', () => {
+  let merges = 0;
+  let splits = 0;
   for (let g = 0; g < 20; g++) {
     let s = E.newGame();
     while (s.phase === 'terrain' || s.phase === 'units') {
       const opts = E.legalPlacements(s);
       s = E.apply(s, opts[Math.floor(Math.random() * opts.length)]);
     }
-    for (let i = 0; i < 300 && s.phase === 'battle'; i++) {
-      const mine = E.unitsOf(s, s.current);
-      const acts = [{ type: 'endTurn' }];
-      for (const u of mine) {
-        for (const k of E.legalSteps(s, u.id)) {
-          acts.push({ type: 'step', unitId: u.id, to: k });
-          const sideBySide = { type: 'step', unitId: u.id, to: k, capture: false };
-          if (E.isLegal(s, sideBySide)) acts.push(sideBySide);
-        }
-        for (const t of E.captureTargets(s, u.id)) acts.push({ type: 'capture', unitId: u.id, targetId: t });
-      }
-      s = E.apply(s, acts[Math.floor(Math.random() * acts.length)]);
+    for (let i = 0; i < 200 && s.phase === 'battle'; i++) {
+      const acts = allActions(s);
+      // Favour merges and splits so they get exercised.
+      const special = acts.filter((x) => x.merge || x.type === 'merge' || x.type === 'split');
+      const pick = special.length && Math.random() < 0.4 ? special : acts;
+      const act = pick[Math.floor(Math.random() * pick.length)];
+      if (act.merge || act.type === 'merge') merges++;
+      if (act.type === 'split') splits++;
+      s = E.apply(s, act);
       for (const k of Object.keys(s.hexes)) {
-        const types = E.unitsAt(s, k).map((u) => u.type);
-        ok(types.length <= 2, `hex ${k} holds ${types.length} units`);
+        ok(E.unitsAt(s, k).length <= 2, `hex ${k} holds ${E.unitsAt(s, k).length} units`);
+      }
+      for (const p of [0, 1]) {
+        const parts = Object.values(s.units).filter((u) => u.player === p).flatMap((u) => R.units[u.type].parts);
+        eq(parts.slice().sort(), R.base.slice().sort(), `${R.players[p].name}'s base units, alive or captured`);
       }
     }
   }
+  ok(merges > 0 && splits > 0, `exercised ${merges} merges and ${splits} splits`);
 });
-

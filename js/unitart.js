@@ -5,7 +5,7 @@
  * Each picture is drawn in a 36×36 box centred on (0, 0) (the token's radius
  * is 18); the caller scales it to the token. Two layers: `g` is clipped to the
  * disc, `top` sits over the ring, for the one part that sticks out (a rifle
- * barrel, a gun, a sabre, an antenna).
+ * barrel, a gun, a sabre, an antenna, a mortar tube).
  * Uniforms take the player's colour, so the team reads from the art as well as
  * from the ring around it.
  */
@@ -67,19 +67,6 @@ function rifle(parent, transform, glove) {
   shape('circle', { cx: -4.2, cy: 4.2, r: 2.1, fill: glove, 'stroke-width': 0.7 }, r);
 }
 
-// Whip antenna from a radio on the left shoulder, sticking out of the top.
-function antenna(top) {
-  shape('rect', { x: -14, y: 4, width: 4, height: 5.5, rx: 0.8, fill: TRACK, 'stroke-width': 0.7 }, top);
-  shape('path', { d: 'M-12.6,4 Q-15,-8 -19.5,-19', fill: 'none', 'stroke-width': 1.1 }, top);
-  svg('circle', { cx: -19.5, cy: -19, r: 1.1, fill: INK }, top);
-}
-
-// Plate carrier with a team-colour patch.
-function carrier(g, c, fill) {
-  shape('rect', { x: -7.5, y: 8, width: 15, height: 12, rx: 2, fill }, g);
-  shape('rect', { x: 1.6, y: 10, width: 4, height: 2.6, fill: c.main, 'stroke-width': 0.6 }, g);
-}
-
 const ART = {
   // Infantry: modern helmet, plate carrier, assault rifle whose barrel pokes out of the token.
   light(g, c, top) {
@@ -90,21 +77,22 @@ const ART = {
     rifle(top, 'translate(2 8.5) rotate(-38)', COYOTE_DARK);
   },
 
-  // Main battle tank, side on: low angular turret, side skirts, and a long gun reaching out of the token.
+  // Armoured carrier, side on: eight wheels, a tall angled hull with a rear door, and a small turret whose short cannon pokes out of the token.
   armour(g, c, top) {
-    shadow(g, 13.5);
-    shape('rect', { x: -15.5, y: 5, width: 31, height: 7.5, rx: 3.7, fill: TRACK }, g);
-    for (const x of [-11, -6.6, -2.2, 2.2, 6.6, 11]) shape('circle', { cx: x, cy: 9.6, r: 2, fill: STEEL_LIGHT, 'stroke-width': 0.7 }, g);
-    shape('path', { d: 'M-16.5,2 L-15,-1.5 L12,-1.5 L17,2 Z', fill: c.main }, g);
-    shape('path', { d: 'M-16,2 H16.5 L15,7 H-15.5 Z', fill: c.dark }, g);
-    shape('path', { d: 'M-8,2.4 V6.6 M0,2.4 V6.6 M8,2.4 V6.6', fill: 'none', stroke: c.main, 'stroke-width': 0.7 }, g);
-    shape('rect', { x: -14, y: -5.4, width: 3.6, height: 3.4, fill: c.dark, 'stroke-width': 0.7 }, g);
-    shape('polygon', { points: '-11,-1.5 -10,-6.8 1.5,-7.6 9,-5.2 9.8,-1.5', fill: c.light }, g);
-    shape('rect', { x: -5, y: -10.2, width: 4.2, height: 2.8, rx: 0.6, fill: STEEL, 'stroke-width': 0.7 }, g);
-    shape('rect', { x: -1, y: -9.4, width: 6, height: 0.9, fill: TRACK, 'stroke-width': 0.4 }, g);
-    shape('rect', { x: 9.4, y: -5.4, width: 15, height: 1.8, fill: STEEL, 'stroke-width': 0.7 }, top);
-    shape('rect', { x: 14, y: -5.9, width: 3, height: 2.8, rx: 0.6, fill: STEEL, 'stroke-width': 0.7 }, top);
-    shape('rect', { x: 23.5, y: -5.9, width: 2, height: 2.8, rx: 0.4, fill: STEEL, 'stroke-width': 0.7 }, top);
+    shadow(g, 14);
+    shape('path', { d: 'M-16,8 L-16,-1 L-11,-5 L13,-5 L17,1 L17,8 Z', fill: c.main }, g);
+    shape('path', { d: 'M-16,3.5 H17 V8 H-16 Z', fill: c.dark }, g);
+    shape('path', { d: 'M-11,-5 L-9,-1.5 L12,-1.5', fill: 'none', stroke: c.dark, 'stroke-width': 0.8 }, g);
+    shape('rect', { x: -14.6, y: -1, width: 3.6, height: 4.4, rx: 0.6, fill: c.light, 'stroke-width': 0.7 }, g); // rear door
+    for (const x of [3, 7, 11]) shape('rect', { x, y: -4, width: 2.4, height: 1.6, fill: '#bfe0f2', 'stroke-width': 0.5 }, g);
+    for (const x of [-11.5, -5.5, 3.5, 9.5]) {
+      shape('circle', { cx: x, cy: 9.6, r: 3.3, fill: TRACK }, g);
+      svg('circle', { cx: x, cy: 9.6, r: 1.2, fill: STEEL_LIGHT }, g);
+    }
+    shape('path', { d: 'M-6,-5 L-5,-9.5 L2.5,-9.5 L4,-5 Z', fill: c.light }, g);
+    shape('rect', { x: -3.6, y: -12, width: 3, height: 2.5, rx: 0.5, fill: STEEL, 'stroke-width': 0.6 }, g);
+    shape('rect', { x: 3.6, y: -8.3, width: 11, height: 1.5, fill: STEEL, 'stroke-width': 0.6 }, top);
+    shape('rect', { x: 13.6, y: -8.8, width: 2.6, height: 2.5, rx: 0.4, fill: STEEL, 'stroke-width': 0.6 }, top);
   },
 
   // General: peaked cap, gold braid, epaulettes, medals, and a sabre raised out of the token.
@@ -125,36 +113,43 @@ const ART = {
     shape('path', { d: 'M6.8,11.6 Q10,10 13.4,11.8 Q13.6,15.5 10.8,16.2', fill: 'none', stroke: GOLD, 'stroke-width': 1.6 }, top);
     shape('circle', { cx: 10.2, cy: 14, r: 2.4, fill: '#f2f2f2', 'stroke-width': 0.7 }, top);
   },
-  // Special forces: balaclava, helmet, four-tube night vision down and glowing, radio antenna out of the token.
-  covert(g, c, top) {
-    bust(g, c, { jacket: c.main });
-    carrier(g, c, '#2f3338');
-    shape('circle', { cx: 0, cy: -2.5, r: 6.3, fill: '#24272b' }, g); // balaclava
-    shape('rect', { x: -2.6, y: 1, width: 5.2, height: 5, fill: '#24272b', stroke: 'none' }, g);
-    helmet(g, c.dark);
-    shape('rect', { x: -1.2, y: -7.4, width: 2.4, height: 3, fill: STEEL, 'stroke-width': 0.6 }, g);
-    shape('rect', { x: -6, y: -4.8, width: 12, height: 4.4, rx: 1.2, fill: STEEL }, g);
-    for (const x of [-4.2, -1.4, 1.4, 4.2]) {
-      shape('circle', { cx: x, cy: -2, r: 1.35, fill: '#15181b', 'stroke-width': 0.5 }, g);
-      svg('circle', { cx: x, cy: -2, r: 0.75, fill: '#7dff6a' }, g);
+  // Recon drone from above: four arms, spinning rotors, the body in team colour and a camera underneath.
+  flying(g, c, top) {
+    svg('ellipse', { cx: 1.5, cy: 3, rx: 10, ry: 9, fill: '#000', opacity: 0.12 }, g);
+    for (const [x, y] of [[-9, -9], [9, -9], [-9, 9], [9, 9]]) {
+      shape('line', { x1: 0, y1: 0, x2: x, y2: y, stroke: STEEL, 'stroke-width': 3 }, g);
+      shape('line', { x1: 0, y1: 0, x2: x, y2: y, stroke: STEEL_LIGHT, 'stroke-width': 1.2 }, g);
     }
-    antenna(top);
+    for (const [x, y] of [[-9, -9], [9, -9], [-9, 9], [9, 9]]) {
+      svg('circle', { cx: x, cy: y, r: 6.8, fill: '#dfe7ee', opacity: 0.55 }, g);
+      shape('circle', { cx: x, cy: y, r: 6.8, fill: 'none', 'stroke-width': 0.6, opacity: 0.6 }, g);
+      shape('path', { d: `M${x - 6},${y + 1.5} L${x + 6},${y - 1.5}`, fill: 'none', stroke: INK, 'stroke-width': 1.3, opacity: 0.55 }, g);
+      shape('circle', { cx: x, cy: y, r: 1.6, fill: STEEL }, g);
+    }
+    shape('rect', { x: -5.5, y: -6.5, width: 11, height: 13, rx: 3.5, fill: c.main }, g);
+    shape('rect', { x: -3.6, y: -5, width: 7.2, height: 3, rx: 1.2, fill: c.light, 'stroke-width': 0.6 }, g);
+    shape('circle', { cx: 0, cy: 2.6, r: 2.7, fill: TRACK }, g);
+    svg('circle', { cx: 0.8, cy: 1.9, r: 0.9, fill: '#7fd4ff' }, g);
+    svg('circle', { cx: -3.6, cy: 5.2, r: 0.7, fill: '#7dff6a' }, g);
+    shape('path', { d: 'M3,-6.5 L6,-17', fill: 'none', 'stroke-width': 1 }, top); // antenna
+    svg('circle', { cx: 6, cy: -17, r: 1, fill: INK }, top);
   },
-  // Artillery: truck-mounted howitzer, its long gun raised over the cab and out of the token.
-  ranged(g, c, top) {
+  // Mortar team: a mortar tube on its bipod and baseplate behind sandbags, its muzzle out of the token, a team-coloured ammo crate.
+  range(g, c, top) {
     shadow(g, 14);
-    shape('rect', { x: -15.5, y: 4, width: 31, height: 3.6, fill: c.dark }, g);
-          shape('path', { d: 'M6,4 L6,-5 L11.5,-5 L16,0 L16,4 Z', fill: c.main }, g);
-    shape('path', { d: 'M8,-3.6 L11,-3.6 L14,0 L8,0 Z', fill: '#bfe0f2', 'stroke-width': 0.7 }, g);
-    shape('polygon', { points: '-9,4 -7,-2.5 0,-2.5 2,4', fill: c.light }, g); // mount
-    for (const x of [-11, -4.5, 10.5]) {
-      shape('circle', { cx: x, cy: 9.3, r: 3.6, fill: TRACK }, g);
-      svg('circle', { cx: x, cy: 9.3, r: 1.3, fill: STEEL_LIGHT }, g);
+    shape('ellipse', { cx: -2, cy: 9.5, rx: 8, ry: 2.6, fill: STEEL }, g); // baseplate
+    shape('path', { d: 'M3,-1 L9.5,11 M3,-1 L1,11', fill: 'none', stroke: STEEL, 'stroke-width': 1.6 }, g); // bipod
+    shape('path', { d: 'M2,-0.4 L6.6,1.8', fill: 'none', stroke: STEEL_LIGHT, 'stroke-width': 1.2 }, g);
+    const tube = svg('g', { transform: 'translate(-3 9) rotate(-62)' }, top);
+    shape('rect', { x: 0, y: -2.2, width: 27, height: 4.4, rx: 1, fill: '#3d4248', 'stroke-width': 0.8 }, tube);
+    shape('rect', { x: 25, y: -2.7, width: 3, height: 5.4, rx: 0.6, fill: STEEL, 'stroke-width': 0.7 }, tube);
+    for (const x of [-15, -9, 9, 15]) shape('rect', { x: x - 3, y: 11, width: 6, height: 4.5, rx: 2.2, fill: COYOTE, 'stroke-width': 0.8 }, g);
+    for (const x of [-12, 12]) shape('rect', { x: x - 3, y: 7, width: 6, height: 4.5, rx: 2.2, fill: COYOTE_DARK, 'stroke-width': 0.8 }, g);
+    shape('rect', { x: -16, y: -1, width: 8.5, height: 7, rx: 0.8, fill: c.dark }, g); // ammo crate
+    shape('rect', { x: -14.6, y: 1.4, width: 5.7, height: 2, fill: c.light, stroke: 'none' }, g);
+    for (const x of [-5.5, -3]) {
+      shape('path', { d: `M${x},6 L${x},0.5 Q${x + 0.9},-1.8 ${x + 1.8},0.5 L${x + 1.8},6 Z`, fill: '#6b7a45', 'stroke-width': 0.6 }, g);
     }
-    const gun = svg('g', { transform: 'translate(-3.5 -2.5) rotate(-28)' }, top);
-    shape('rect', { x: -6, y: -1.9, width: 10, height: 3.8, rx: 1, fill: c.light }, gun);
-    shape('rect', { x: 4, y: -0.9, width: 20, height: 1.8, fill: STEEL, 'stroke-width': 0.7 }, gun);
-    shape('rect', { x: 23, y: -1.7, width: 3, height: 3.4, rx: 0.6, fill: STEEL, 'stroke-width': 0.7 }, gun);
   },
 };
 

@@ -10,6 +10,8 @@
  * - Taking the enemy capital (or winning any other way): rings and rays, then a banner.
  * - A new turn: a small banner naming who's up.
  * - The build phase: a unit drops into place; terrain lands with a puff of dust.
+ * - Merging: the unit it merged with fades into a ring as the new unit arrives.
+ * - Splitting: the part that leaves slides out from the unit it left.
  *
  * ui.js calls play() straight after drawing the new state, with the unit
  * positions from before and after.
@@ -123,6 +125,20 @@ function capture(layer, ctx, ev, impact) {
   expire(g, impact + 560);
 }
 
+// The unit merged into stays put until the mover arrives, then swells and fades into a ring.
+function merge(layer, ctx, ev, p, impact) {
+  const g = at(p, layer);
+  const inner = svg('g', {}, g);
+  ctx.token(ev.partner, 0, 0, p.r, inner);
+  run(inner, [{ transform: tr(0, 0, 1), opacity: 1 }, { transform: tr(0, 0, 1.25), opacity: 0 }],
+    { delay: Math.max(0, impact - 60), duration: 320, easing: 'ease-in' });
+  const burst = at(ctx.pos(ev.hex), layer);
+  ring(burst, impact, 30, '#d97706', { width: 3.5 });
+  ring(burst, impact + 120, 24, '#fff', { width: 2 });
+  expire(g, impact + 320);
+  expire(burst, impact + 700);
+}
+
 function mine(layer, ctx, p, t, moverEl) {
   const g = at(p, layer);
   flash(g, t, 28, BLAST.fire, { opacity: 1, duration: 320 });
@@ -215,7 +231,7 @@ function slide(el, pts, t) {
 // Work out what to show for a list of actions taken from `prev`. Each step is
 // replayed so a capture is shown with the attackers in place at that moment.
 function events(prev, next, actions, ctx) {
-  const out = { routes: {}, captures: [], mines: [], fords: [], drops: [], builds: [] };
+  const out = { routes: {}, captures: [], mines: [], fords: [], drops: [], builds: [], merges: [] };
   let s = Object.assign({}, prev, { log: [] });
   let hop = 0;
   for (const a of actions) {
@@ -225,22 +241,35 @@ function events(prev, next, actions, ctx) {
       out.drops.push(Object.keys(s2.units).find((id) => !s.units[id]));
     } else if (a.type === 'placeTerrain') {
       out.builds.push(a.to);
-    } else if (a.type === 'step' || a.type === 'capture') {
+    } else if (a.type === 'step' || a.type === 'capture' || a.type === 'split' || a.type === 'merge') {
+      // The unit that moves: for a split, the part that leaves (it starts on the same hex).
+      const moverId = a.type === 'split' ? s2.turnState.move.unitId : a.unitId;
       const mover = s.units[a.unitId];
       const from = mover.hex;
-      const to = a.type === 'step' ? a.to : from;
-      if (a.type === 'step') {
-        (out.routes[a.unitId] = out.routes[a.unitId] || [from]).push(to);
+      const to = a.type === 'step' || a.type === 'split' ? a.to : from;
+      if (a.type === 'step' || a.type === 'split') {
+        const route = (out.routes[moverId] = out.routes[moverId] || [from]);
+        route.push(to);
         if (ctx.crossing(s.hexes, from, to) === 'ford') out.fords.push({ hop, from, to });
-        if (s2.hexes[to].terrain === 'minefield') out.mines.push({ hop, hex: to, id: a.unitId });
+        if (s2.hexes[to].terrain === 'minefield') out.mines.push({ hop, hex: to, id: moverId });
         hop += 1;
       }
       for (const id of Object.keys(s.units)) {
-        if (s.units[id].dead || !s2.units[id].dead) continue;
+        if (s.units[id].dead || !s2.units[id] || !s2.units[id].dead) continue;
         const contributors = E.assault(s, id).contributors
           .filter((c) => c.id !== a.unitId)
           .map((c) => ({ id: c.id, player: s.units[c.id].player }));
         out.captures.push({ hop, unit: s.units[id], hex: to, by: mover.player, contributors });
+      }
+      const partnerId = a.type === 'merge' ? a.targetId : a.merge;
+      if (partnerId) {
+        // The moving unit and its partner are now one new unit, which takes over the route.
+        const into = s2.turnState.move.unitId;
+        if (out.routes[moverId] && moverId !== into) {
+          out.routes[into] = out.routes[moverId];
+          delete out.routes[moverId];
+        }
+        out.merges.push({ hop, hex: to, into, partner: s.units[partnerId] });
       }
     }
     s = s2;
@@ -267,9 +296,14 @@ function play(prev, next, actions, ctx) {
 
   for (const [id, route] of Object.entries(ev.routes)) {
     const el = ctx.unitEl(id);
-    if (!el || !ctx.before[id] || !ctx.after[id]) continue;
-    const pts = route.map((k, i) => (i === 0 ? ctx.before[id] : i === route.length - 1 ? ctx.after[id] : ctx.pos(k)));
+    if (!el || !ctx.after[id]) continue;
+    // A unit made by this move (split off, or merged) starts from the middle of the hex it left.
+    const pts = route.map((k, i) => (i === 0 ? ctx.before[id] || ctx.pos(k) : i === route.length - 1 ? ctx.after[id] : ctx.pos(k)));
     slide(el, pts, 0);
+  }
+  for (const m of ev.merges) {
+    const xy = ctx.before[m.partner.id] || Object.assign(ctx.pos(m.hex), { r: 18 });
+    merge(L, ctx, m, xy, m.hop > 0 ? m.hop * HOP : 200);
   }
   // Units that shuffled aside on a shared hex (or back to the middle).
   for (const id of Object.keys(ctx.after)) {
