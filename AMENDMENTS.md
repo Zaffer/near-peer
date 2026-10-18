@@ -22,7 +22,7 @@ How the rules got to where they are, and the changes still to consider.
 | A4 | **Capturing ends the move.** Defeating a unit ends the capturing unit's move. | Play discussion, 2026-10-15 | `captureEndsMove` | Currently off: the capturing unit can keep moving and still gets road bonuses. |
 | A5 | **Only coverts can share hexes and block.** Normal units can't move onto another unit's hex at all, so a covert sitting alone also blocks normal units. | Play discussion, 2026-10-15 | `normalUnitsCanJoinOccupiedHex: false` | Currently a normal unit may move onto a lone covert. |
 | A7 | **Limit captures per turn** (e.g. one). | Play discussion, 2026-10-16 | — | Currently unlimited ("wild west"): one move can capture as many units as it can reach and beat. Revisit if chain captures swing games too hard. A4 (`captureEndsMove`) is the blunter version. |
-| A8 | **Merging units.** Any set of 2+ different units merges into one new unit (31 in total), with names and starting ideas in [UNITS.md](UNITS.md). | Design session, 2026-10-18 | — | Names locked in, mechanics next. Open questions are listed in UNITS.md (summed range and movement, splitting back up, renaming the base units). |
+| A8 | **Merging units.** Any set of 2+ different units merges into one new unit (31 in total), with names and starting ideas in [UNITS.md](UNITS.md). | Design session, 2026-10-18 | — | Names locked in. Decided so far: attack and defence add up, movement and range don't, and merged units can split back up (for now). Next: rework the rules to fit, including renaming the base unit types. |
 
 ## Not rules, but later
 - Polish pass on the interface.
