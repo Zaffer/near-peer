@@ -1,8 +1,9 @@
-# Near Peer — unit merges (design, v0.2)
+# Near Peer — unit merges (design, v0.3)
 
-**Status: design only, not implemented.** The names below are locked in. The ideas are starting
-points for the mechanics. They aren't rules yet. The rules (RULES.md, `js/rules.js`) still need
-reworking to fit this, and that comes next.
+**Status: merging is playable in [v2](v2/) (`/v2`), with no abilities yet.** The names and stats
+below are what v2 uses (`v2/js/rules.js`, rules in [v2/RULES.md](v2/RULES.md)). The only skill is the
+Recon Drone's Surveillance. The ideas are starting points for abilities. They aren't rules yet.
+The original game (`/`, [RULES.md](RULES.md)) is unchanged.
 
 ## The merge rule
 - Each player has one each of the five base units, so a recipe never uses the same unit twice.
@@ -12,8 +13,11 @@ reworking to fit this, and that comes next.
 - That gives 2⁵ − 1 = **31 units**: 5 base, 10 pairs, 10 triples, 5 quads and 1 ultimate.
 - Units can only merge if they share no base unit (L+A can merge with R+F, but not with A+R).
 - **Stats:** attack and defence are the **sum** of the parts. Movement and range are **not summed**.
-  The tables show the highest of the parts as a placeholder until the real rule is decided.
-- **Splitting:** a merged unit can split back into its parts (for now).
+  For now v2 uses the highest of the parts, and the tables show that, until the real rule is decided.
+- **Merging in play (v2):** move a unit onto another of yours and they merge, which ends the move.
+  Two of your units already sharing a hex (one of them a Recon Drone) can merge where they stand.
+- **Splitting:** part of a merged unit can split off and move away as a unit of its own, with its own
+  movement. The rest stays behind. That's the move for the turn (for now).
 - Quads are **special units** (strategic weapons and assets), not army formations. The five-unit
   merge is the Nuke.
 
@@ -42,65 +46,68 @@ Recipe letters: **L** Light · **A** Armour · **R** Range · **F** Flying · **
 - **Hidden units** (the Special Forces stealth idea): fine on one device, but in online play the
   other browser knows every position.
 
-## To do with the rules rework
-- Decide how movement and range work for merged units.
-- Rename the base unit types in code. `js/rules.js` still has `ranged` and `covert` (with
-  Insurgency), but this design uses Range and Flying. Flying's stats here are Covert's for now,
-  without Insurgency.
+- **Surveillance** (Recon Drone only, not passed on when it merges): shares a hex with one other unit,
+  friend or enemy, and flies through occupied hexes. An enemy unit on its hex has −1 defence.
+  It can't capture units and can't take the capital.
+
+## Still to do
+- Decide how movement and range work for merged units (v2 uses the highest of the parts).
 - Turn the ideas below into actual abilities.
+- Done in v2: the base unit types are `light`, `armour`, `range`, `flying` and `hero` in code
+  (v1 still has `ranged` and `covert`).
 
 ## Base units
 
 | Recipe | Name | Atk | Def | Mov | Rng | Idea |
 |--------|------|-----|-----|-----|-----|------|
-| L | **Rifle Squad** | 2 | 2 | 2 | 1 | Riflemen on foot. Cheap, quick and good at holding towns. |
-| A | **Tank** | 1 | 3 | 1 | 1 | Big gun and thick armour. Hard to kill, but slow. |
-| R | **Artillery** | 3 | 1 | 1 | 2 | Towed guns that hit from two hexes away but are fragile up close. |
-| F | **Recon Drone** | 1 | 1 | 1 | 1 | Small drone that scouts ahead and spots targets for others. Weak on its own, but flies over terrain. |
-| H | **Commander** | 3 | 3 | 1 | 1 | Veteran officer who leads from the front. Strong in attack and defence. |
+| L | **Rifle Squad** | 1 | 1 | 1 | 1 | Riflemen on foot. Cheap, quick and good at holding towns. |
+| A | **Armoured Carrier** | 0 | 2 | 1 | 1 | Armoured personnel carrier. Thick armour and room for troops, but almost no firepower of its own. |
+| R | **Mortar Team** | 2 | 0 | 1 | 2 | Light crew with a mortar. Can fire over a unit in the way to hit the one behind it. |
+| F | **Recon Drone** | 0 | 0 | 2 | 1 | Small drone that scouts ahead and spots targets for others. Weak on its own, but flies over terrain. **Surveillance** (in v2). |
+| H | **Commander** | 2 | 2 | 1 | 1 | Veteran officer who leads from the front. Strong in attack and defence. |
 
 ## Pairs
 
 | Recipe | Name | Atk | Def | Mov | Rng | Idea |
 |--------|------|-----|-----|-----|-----|------|
-| L+A | **Armoured Carrier** | 3 | 5 | 2 | 1 | Armoured personnel carrier with infantry inside. Tougher than a Rifle Squad and still quick enough to grab towns. |
-| L+R | **Mortar Team** | 5 | 3 | 2 | 2 | Light crew with a mortar. Can fire over a unit in the way to hit the one behind it. |
-| L+F | **Drone Operators** | 3 | 3 | 2 | 1 | Infantry flying cheap first-person-view kamikaze drones. Short range, but very hard to hide from. |
-| L+H | **Scout Team** | 5 | 5 | 2 | 1 | Elite scouts who move fast, see far and slip behind enemy lines. |
-| A+R | **Howitzer** | 4 | 4 | 1 | 2 | Self-propelled gun. Slow, but its range lets it hit from behind the front line. |
-| A+F | **Transport Helicopter** | 2 | 4 | 1 | 1 | Carries one friendly unit across the board. Weak in a fight on its own. |
-| A+H | **Combat Engineers** | 4 | 6 | 1 | 1 | Armoured engineering vehicles that breach minefields and fortifications and clear the way for everyone else. |
-| R+F | **Long-Range Drone** | 4 | 2 | 1 | 2 | Cheap one-way attack drone launched in swarms from far behind the lines to hit targets deep in enemy territory. |
-| R+H | **Sniper** | 6 | 4 | 1 | 2 | One precise long-range shot. Best at finishing off damaged or exposed units. |
-| F+H | **Attack Helicopter** | 4 | 4 | 1 | 1 | Agile helicopter gunship that hunts tanks at low altitude, popping up from behind terrain to strike. |
+| L+A | **Infantry Fighting Vehicle** | 1 | 3 | 1 | 1 | Infantry riding an armoured fighting vehicle with its own cannon. Fights from the vehicle or dismounts to take ground. |
+| L+R | **Machine Gunner** | 3 | 1 | 1 | 2 | Heavy machine gun team that pins enemy infantry down and covers open ground from a distance. |
+| L+F | **Drone Operators** | 1 | 1 | 2 | 1 | Infantry flying cheap first-person-view kamikaze drones. Short range, but very hard to hide from. |
+| L+H | **Scout Team** | 3 | 3 | 1 | 1 | Elite scouts who move fast, see far and slip behind enemy lines. |
+| A+R | **Howitzer** | 2 | 2 | 1 | 2 | Self-propelled gun. Slow, but its range lets it hit from behind the front line. |
+| A+F | **Transport Helicopter** | 0 | 2 | 2 | 1 | Carries one friendly unit across the board. Weak in a fight on its own. |
+| A+H | **Combat Engineers** | 2 | 4 | 1 | 1 | Armoured engineering vehicles that breach minefields and fortifications and clear the way for everyone else. |
+| R+F | **Long-Range Drone** | 2 | 0 | 2 | 2 | Cheap one-way attack drone launched in swarms from far behind the lines to hit targets deep in enemy territory. |
+| R+H | **Sniper** | 4 | 2 | 1 | 2 | One precise long-range shot. Best at finishing off damaged or exposed units. |
+| F+H | **Attack Helicopter** | 2 | 2 | 2 | 1 | Agile helicopter gunship that hunts tanks at low altitude, popping up from behind terrain to strike. |
 
 ## Triples
 
 | Recipe | Name | Atk | Def | Mov | Rng | Idea |
 |--------|------|-----|-----|-----|-----|------|
-| L+A+R | **Mechanised Infantry** | 6 | 6 | 2 | 2 | Infantry riding armoured fighting vehicles with their own cannon. Fights from the vehicle or dismounts to take ground. |
-| L+A+F | **Heliborne Troops** | 4 | 6 | 2 | 1 | Helicopter-borne troops who strike, then pull back in the same turn. |
-| L+A+H | **Assault Brigade** | 6 | 8 | 2 | 1 | Hardened assault troops with armoured support who break into trench lines and fortified towns. |
-| L+R+F | **Bomber Drones** | 6 | 4 | 2 | 2 | Heavy multirotor drones that drop munitions on positions again and again, mostly at night. |
-| L+R+H | **Rocket Artillery** | 8 | 6 | 2 | 2 | Truck-mounted multiple rocket launcher. Fires a salvo deep behind the front, then drives off before return fire lands. |
-| L+F+H | **Paratroopers** | 6 | 6 | 2 | 1 | Elite airborne infantry who jump in behind enemy lines and seize ground before help arrives. |
-| A+R+F | **Strategic Bomber** | 5 | 5 | 1 | 2 | Carpet bombing: attacks every enemy unit in a straight line of hexes at once. |
-| A+R+H | **Air Defence** | 7 | 7 | 1 | 2 | Long-range surface-to-air missile system. Shoots down drones, missiles and aircraft. |
-| A+F+H | **Gunship** | 5 | 7 | 1 | 1 | Heavily armoured helicopter gunship. A flying tank that can also carry troops. |
-| R+F+H | **Stealth Fighter** | 7 | 5 | 1 | 2 | Fifth-generation fighter that's hard to detect. Owns the sky against other flying units. |
+| L+A+R | **Main Battle Tank** | 3 | 3 | 1 | 2 | Big gun and thick armour. Hard to kill, but slow. |
+| L+A+F | **Heliborne Troops** | 1 | 3 | 2 | 1 | Helicopter-borne troops who strike, then pull back in the same turn. |
+| L+A+H | **Assault Brigade** | 3 | 5 | 1 | 1 | Hardened assault troops with armoured support who break into trench lines and fortified towns. |
+| L+R+F | **Bomber Drones** | 3 | 1 | 2 | 2 | Heavy multirotor drones that drop munitions on positions again and again, mostly at night. |
+| L+R+H | **Rocket Artillery** | 5 | 3 | 1 | 2 | Truck-mounted multiple rocket launcher. Fires a salvo deep behind the front, then drives off before return fire lands. |
+| L+F+H | **Paratroopers** | 3 | 3 | 2 | 1 | Elite airborne infantry who jump in behind enemy lines and seize ground before help arrives. |
+| A+R+F | **Strategic Bomber** | 2 | 2 | 2 | 2 | Carpet bombing: attacks every enemy unit in a straight line of hexes at once. |
+| A+R+H | **Air Defence** | 4 | 4 | 1 | 2 | Long-range surface-to-air missile system. Shoots down drones, missiles and aircraft. |
+| A+F+H | **Gunship** | 2 | 4 | 2 | 1 | Heavily armoured helicopter gunship. A flying tank that can also carry troops. |
+| R+F+H | **Stealth Fighter** | 4 | 2 | 2 | 2 | Fifth-generation fighter that's hard to detect. Owns the sky against other flying units. |
 
 ## Special units (quads)
 
 | Recipe | Name | Atk | Def | Mov | Rng | Idea |
 |--------|------|-----|-----|-----|-----|------|
-| L+A+R+F | **Drone Swarm** | 7 | 7 | 2 | 2 | Hundreds of cheap drones launched at once to overwhelm air defences through sheer numbers. |
-| L+A+R+H | **Electronic Warfare** | 9 | 9 | 2 | 2 | Electronic warfare trucks that jam drones, missiles and communications across a wide area. |
-| L+A+F+H | **Massive Ordnance** | 7 | 9 | 2 | 1 | The biggest non-nuclear bombs there are, dropped from the air to flatten fortifications and bunkers. |
-| L+R+F+H | **Special Forces** | 9 | 7 | 2 | 2 | Stealth: hidden from the enemy until it attacks, and may slip away after striking. |
-| A+R+F+H | **Ballistic Missile** | 8 | 8 | 1 | 2 | Launched from far behind the lines. One huge strike anywhere on the board, then it's spent. |
+| L+A+R+F | **Drone Swarm** | 3 | 3 | 2 | 2 | Hundreds of cheap drones launched at once to overwhelm air defences through sheer numbers. |
+| L+A+R+H | **Electronic Warfare** | 5 | 5 | 1 | 2 | Electronic warfare trucks that jam drones, missiles and communications across a wide area. |
+| L+A+F+H | **Massive Ordnance** | 3 | 5 | 2 | 1 | The biggest non-nuclear bombs there are, dropped from the air to flatten fortifications and bunkers. |
+| L+R+F+H | **Special Forces** | 5 | 3 | 2 | 2 | Stealth: hidden from the enemy until it attacks, and may slip away after striking. |
+| A+R+F+H | **Ballistic Missile** | 4 | 4 | 2 | 2 | Launched from far behind the lines. One huge strike anywhere on the board, then it's spent. |
 
 ## Ultimate
 
 | Recipe | Name | Atk | Def | Mov | Rng | Idea |
 |--------|------|-----|-----|-----|-----|------|
-| L+A+R+F+H | **Nuke** | 10 | 10 | 2 | 2 | The ultimate deterrent. All five units merged into one weapon that can end the game. |
+| L+A+R+F+H | **Nuke** | 5 | 5 | 2 | 2 | The ultimate deterrent. All five units merged into one weapon that can end the game. |

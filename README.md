@@ -13,6 +13,16 @@ Serve the folder and open it in a browser, e.g. `python3 -m http.server` and the
 - Hover any unit to see curved arrows from every enemy unit attacking it, with the total vs its defence.
 - To move, select a unit and click where it should go, or drag it there (works on touch screens). An arrow shows where it's heading: in your colour if it can get there, magenta if it would capture, grey if it can't. A hex more than one step away is reached by the shortest route that doesn't fight on the way.
 
+## Version 2: merging units
+Open `/v2/` (e.g. http://localhost:8000/v2/, with `v2/?quick` for a random setup). In v2 your units can **merge**:
+move a unit onto another of yours and they become one new unit, with their attack and defence added up.
+Any mix of your five base units makes a different unit, 31 in all, and merged units can split back up.
+The base units are the Rifle Squad, Armoured Carrier, Mortar Team, Recon Drone and Commander, with new stats.
+There are no special abilities yet, apart from the Recon Drone's Surveillance.
+- Rules: [v2/RULES.md](v2/RULES.md). Unit names and ideas: [UNITS.md](UNITS.md). Tests: `v2/tests.html`.
+- v2 is a separate copy of the game in [v2/](v2/), with the same file layout as below (`v2/js/rules.js` and so on), so v1 at `/` is unchanged.
+- Online v2 games are separate from v1 games. Playing against Claude works the same way, at `/v2/?vs=claude` with `bun v2/tools/claude.js`.
+
 ## Play online
 Click **Create a game and get a link** and send the link to a friend. They play Red, and anyone else who opens it watches.
 - Moves go straight between the two browsers ([Trystero](https://github.com/dmotz/trystero), WebRTC). There's no game server, and both browsers check every move against the rules.

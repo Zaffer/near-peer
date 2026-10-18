@@ -22,7 +22,7 @@ How the rules got to where they are, and the changes still to consider.
 | A4 | **Capturing ends the move.** Defeating a unit ends the capturing unit's move. | Play discussion, 2026-10-15 | `captureEndsMove` | Currently off: the capturing unit can keep moving and still gets road bonuses. |
 | A5 | **Only coverts can share hexes and block.** Normal units can't move onto another unit's hex at all, so a covert sitting alone also blocks normal units. | Play discussion, 2026-10-15 | `normalUnitsCanJoinOccupiedHex: false` | Currently a normal unit may move onto a lone covert. |
 | A7 | **Limit captures per turn** (e.g. one). | Play discussion, 2026-10-16 | — | Currently unlimited ("wild west"): one move can capture as many units as it can reach and beat. Revisit if chain captures swing games too hard. A4 (`captureEndsMove`) is the blunter version. |
-| A8 | **Merging units.** Any set of 2+ different units merges into one new unit (31 in total), with names and starting ideas in [UNITS.md](UNITS.md). | Design session, 2026-10-18 | — | Names locked in. Decided so far: attack and defence add up, movement and range don't, and merged units can split back up (for now). Next: rework the rules to fit, including renaming the base unit types. |
+| A8 | **Merging units.** Any set of 2+ different units merges into one new unit (31 in total), with names and starting ideas in [UNITS.md](UNITS.md). | Design session, 2026-10-18 | `mergeEndsMove` (v2) | Playable in v2 without abilities (see the decision log, 2026-10-18). Still open: the real movement and range rule for merged units (v2 uses the best of the parts), and turning the ideas into abilities. |
 
 ## Not rules, but later
 - Polish pass on the interface.
@@ -33,6 +33,31 @@ How the rules got to where they are, and the changes still to consider.
 ## Decision log
 
 Newest first.
+
+### 2026-10-18 — v2: merging units (`/v2`)
+- **What:** A second version of the game in `v2/`, served at `/v2`, with its own rules file, tests and [v2/RULES.md](v2/RULES.md).
+  v1 at `/` is unchanged. Online v2 games use their own room namespace, so they never meet v1 games.
+- **Rules (v2 only):**
+  - **New base units and stats** (Atk/Def/Mov/Rng): Rifle Squad 1/1/1/1, Armoured Carrier 0/2/1/1, Mortar Team 2/0/1/2,
+    Recon Drone 0/0/2/1, Commander 2/2/1/1. In code they're `light`, `armour`, `range`, `flying` and `hero`.
+  - **Renames** (the unit list in UNITS.md): Tank → Armoured Carrier, Armoured Carrier → Infantry Fighting Vehicle,
+    Mechanised Infantry → Main Battle Tank, Artillery → Mortar Team, Mortar Team → Machine Gunner. Each idea moved with its name.
+    Machine Gunner got a new idea, and so did Armoured Carrier and Infantry Fighting Vehicle, which inherited
+    the old ideas of the units renamed away from them.
+  - **Merging:** move a unit onto another of yours and they merge, which ends the move (`mergeEndsMove`).
+    Two of your units sharing a hex can merge in place. Attack and defence add up; movement and range are the best of the parts
+    (a placeholder). No abilities yet.
+  - **Splitting:** some of a merged unit's parts step off as a unit of their own, with their own movement. The rest stays.
+    The split is the first step of the move, so the part leaving can carry on, capture, or merge.
+  - **Surveillance replaces Insurgency** and is the only skill: the Recon Drone shares a hex and flies through occupied ones,
+    gives an enemy on its hex −1 defence, and can't capture or take the capital. Merged units don't inherit it.
+- **Why:** The user asked for the merge mechanic as a separate v2, without abilities for now, and gave the base stats
+  and the Surveillance rule. The renames came in the same request.
+- **My calls, to check:**
+  - Surveillance's −1 applies to enemies only.
+  - A merged unit with a drone in it loses Surveillance.
+  - Merging ends the move.
+  - A split must step off the hex.
 
 ### 2026-10-18 — Dark mode
 - **What:** The page has a dark theme. It follows the system setting by default, and the **Theme** picker (Auto / Light / Dark, next to Map and Units) can override that. The choice is remembered in the browser.
