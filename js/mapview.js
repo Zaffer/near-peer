@@ -9,7 +9,8 @@
  *   a short street out to meet it.
  * - A river runs along the hex edges between Blue's and Red's starting zones,
  *   with a bridge wherever a road crosses it.
- * - Towns are clusters of roofs, capitals a dense city in the owner's colour,
+ * - Towns are clusters of roofs, capitals a dense city in the owner's colour round a
+ *   square, with a skyline of towers at the back,
  *   fortifications scattered trenches and gun pits, minefields neat rows of mines.
  *
  * Detail placement is random but seeded by the hex key, so a tile looks the
@@ -75,6 +76,52 @@ function smoothPoints(pts, steps = 10) {
     }
   }
   return out;
+}
+
+// ---------------------------------------------------------------- the capital's centrepiece
+
+const LEAF = { sun: '#6f9d4f', shade: '#4d7a35', edge: '#2f4d20' };
+
+// The middle of the capital hex at (x, y), size S, with `owner` its player's colour: a paved square
+// where a unit stands, and towers along the back of the hex. The towers stand up, so they still show
+// above a unit on the capital; the tallest has a spire in the owner's colour.
+function capitalCentre(x, y, S, owner, g) {
+  // The square: octagonal paving with a ring, and a tree at each front corner.
+  const cy = y + S * 0.06;
+  const pts = [];
+  for (let i = 0; i < 8; i++) {
+    const a = Math.PI / 8 + (i / 8) * Math.PI * 2;
+    pts.push({ x: x + Math.cos(a) * S * 0.36, y: cy + Math.sin(a) * S * 0.36 });
+  }
+  svg('path', { d: `M${pts.map(xy).join(' L')} z`, fill: '#e6dfd1', stroke: STONE.shade, 'stroke-width': 1.2 }, g);
+  svg('circle', { cx: f(x), cy: f(cy), r: f(S * 0.24), fill: 'none', stroke: STONE.shade, 'stroke-width': 0.8, opacity: 0.8 }, g);
+  for (const dx of [-1, 1]) {
+    const tx = x + dx * S * 0.27;
+    const ty = cy + S * 0.2;
+    svg('circle', { cx: f(tx + 1.5), cy: f(ty + 1.5), r: 4.5, fill: '#000', opacity: 0.22 }, g);
+    svg('circle', { cx: f(tx), cy: f(ty), r: 4.5, fill: LEAF.sun, stroke: LEAF.edge, 'stroke-width': 0.8 }, g);
+    svg('circle', { cx: f(tx + 1.1), cy: f(ty + 1.1), r: 2.3, fill: LEAF.shade, opacity: 0.8 }, g);
+  }
+  // The towers: a front face, a shaded side face to the right, and rows of lit windows.
+  const towers = [
+    { dx: -0.4, w: 0.17, h: 0.27 }, { dx: -0.22, w: 0.2, h: 0.4 }, { dx: 0.0, w: 0.16, h: 0.48, spire: true },
+    { dx: 0.17, w: 0.19, h: 0.33 }, { dx: 0.35, w: 0.15, h: 0.24 },
+  ];
+  const base = y - S * 0.22;
+  for (const t of towers) {
+    const tw = t.w * S;
+    const th = t.h * S;
+    const tx = x + t.dx * S - tw / 2;
+    const side = tw * 0.35;
+    svg('rect', { x: f(tx), y: f(base - th), width: f(tw), height: f(th), fill: '#cfc8bb', stroke: '#4f4a42', 'stroke-width': 0.9 }, g);
+    svg('path', { d: `M${f(tx + tw)},${f(base - th)} l${f(side)},${f(-side * 0.6)} v${f(th)} l${f(-side)},${f(side * 0.6)} z`, fill: '#9e968a', stroke: '#4f4a42', 'stroke-width': 0.9 }, g);
+    for (let wy = base - th + 4; wy < base - 3; wy += 5) {
+      for (let wx = tx + 2.5; wx < tx + tw - 2; wx += 4.5) svg('rect', { x: f(wx), y: f(wy), width: 2, height: 2.4, fill: '#f3e3a8', opacity: 0.85 }, g);
+    }
+    if (t.spire) {
+      svg('path', { d: `M${f(tx)},${f(base - th)} L${f(tx + tw / 2)},${f(base - th - S * 0.16)} L${f(tx + tw)},${f(base - th)} z`, fill: owner, stroke: '#fff', 'stroke-width': 0.8 }, g);
+    }
+  }
 }
 
 // ---------------------------------------------------------------- draw
@@ -308,7 +355,7 @@ function draw(parent, st, ctx) {
         building(p, w, grid * 0.78, rand() < 0.5 ? 0 : 90, rand() < 0.55 ? ROOF : STONE, city);
       }
     }
-    svg('circle', { cx: f(x), cy: f(y), r: f(S * 0.36), fill: STONE.sun, stroke: STONE.shade, 'stroke-width': 1.5 }, town);
+    capitalCentre(x, y, S, owner || '#888888', town);
     if (owner) {
       svg('polygon', { points: poly(k, S - 4), fill: 'none', stroke: owner, 'stroke-width': 4 }, town);
       const fx = x + S * 0.45;
