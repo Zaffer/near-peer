@@ -448,6 +448,34 @@ function plan(unitId, k) {
   return plans.get(key);
 }
 
+// Menu choices are short: an icon for what happens (an arrow in your colour to move, a sword to
+// capture, a plus to merge, scissors in front when splitting), then a word or two and unit badges.
+// label is the whole sentence, for the tooltip and screen readers.
+const arrowIcon = (color) => {
+  const el = svg('svg', { viewBox: '0 0 24 24', width: 16, height: 16, class: 'icon' });
+  svg('path', { d: 'M4 12h15 M13 6l6 6-6 6', fill: 'none', stroke: color, 'stroke-width': 2.8, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, el);
+  return el;
+};
+const ICON = {
+  move: (p) => arrowIcon(P(p).color),
+  beside: () => arrowIcon('currentColor'),
+  capture: () => iconEl('stats', 'attack', 'currentColor', 15),
+  merge: () => '+',
+  select: () => '',
+};
+// A unit in a menu: the board's own token (its picture, with rings for special units). With the
+// Symbols style a merged token's part icons are too small to read at this size, so those get the
+// recipe-letter badge instead.
+const tokenEl = (type, p, size = 26) => {
+  if (ui.settings.unitStyle() !== 'graphic' && R.units[type].tier > 1) return unitMini(type, p);
+  const el = svg('svg', { viewBox: '-25 -25 50 50', width: size, height: size, class: 'mi-token' });
+  drawToken({ type, player: p }, 0, 0, 18, el);
+  return el;
+};
+const mergedEl = (a, b, p) => [tokenEl(R.typeOf(R.units[a].parts.concat(R.units[b].parts)), p), ' ', h('strong', {}, mergedName(a, b))];
+const named = (type, p) => [tokenEl(type, p), ` ${R.units[type].name}`];
+const note = (text) => h('span', { class: 'muted' }, ` ${text}`);
+
 // Menu items for moving unit `mine` to hex k (by any route): move, move in beside, merge.
 // While splitting, only the chosen parts go.
 function moveItems(st, mine, k) {
@@ -455,24 +483,39 @@ function moveItems(st, mine, k) {
   const parts = ui.selected() === mine.id ? ui.moveParts() : null;
   const going = parts ? R.typeOf(parts) : mine.type;
   const lead = parts ? `Split off ${R.units[going].name}: ` : '';
+  // Fresh elements each time they're used: a node can only be in one place.
+  const split = () => (parts ? [h('span', { class: 'mi-split' }, '✂', tokenEl(going, mine.player))] : []);
   const p = plan(mine.id, k);
   if (p && !p.merge) {
     const names = p.caps.map((c) => R.units[c.type].name).join(' + ');
-    items.push({ label: `${lead}${p.caps.length ? `Move here and capture ${names}` : 'Move here'}`, run: () => commit(p.steps) });
+    const caps = () => p.caps.flatMap((c, i) => [i ? ' + ' : '', ...named(c.type, c.player)]);
+    items.push(p.caps.length
+      ? { kind: 'capture', label: `${lead}Move here and capture ${names}`, body: [...split(), 'Capture ', ...caps()], run: () => commit(p.steps) }
+      : { kind: 'move', label: `${lead}Move here`, body: [...split(), 'Move'], run: () => commit(p.steps) });
     const beside = p.caps.length && findRoute(st, mine.id, k, { capture: false, parts });
-    if (beside) items.push({ label: `${lead}Move in beside ${names} (no capture)`, run: () => commit(beside.steps) });
+    if (beside) {
+      items.push({ kind: 'beside', label: `${lead}Move in beside ${names} (no capture)`, body: [...split(), 'Beside ', ...caps(), note('no capture')], run: () => commit(beside.steps) });
+    }
   }
   for (const o of mergePartners(st, mine, k)) {
     const r = p && p.merge === o.id ? p : findRoute(st, mine.id, k, { merge: o.id, parts });
-    if (r) items.push({ label: `${lead}Merge with ${R.units[o.type].name} → ${mergedName(going, o.type)}`, merge: true, run: () => commit(r.steps) });
+    if (!r) continue;
+    items.push({
+      kind: 'merge',
+      label: `${lead}Merge with ${R.units[o.type].name} → ${mergedName(going, o.type)}`,
+      body: [parts ? '✂' : '', tokenEl(going, mine.player), ' + ', tokenEl(o.type, o.player), ' → ', ...mergedEl(going, o.type, mine.player)],
+      run: () => commit(r.steps),
+    });
   }
   return items;
 }
 
 // Merging where you stand with a unit of yours sharing the hex.
 const mergeHereItems = (st, mine) => E.mergeTargets(st, mine.id).map((id) => ({
+  kind: 'merge',
   label: `Merge with ${unitName(st, id)} here → ${mergedName(mine.type, st.units[id].type)} (uses your move)`,
-  merge: true,
+  body: [tokenEl(mine.type, mine.player), ' + ', tokenEl(st.units[id].type, mine.player), ' → ',
+    ...mergedEl(mine.type, st.units[id].type, mine.player), note('here')],
   run: () => commit({ type: 'merge', unitId: mine.id, targetId: id }),
 }));
 
@@ -503,7 +546,12 @@ function onHexClick(k, ev) {
   if (mine) {
     if (k === mine.hex) {
       for (const id of E.captureTargets(st, mine.id)) {
-        items.push({ label: `Capture ${unitName(st, id)} here (uses your move)`, run: () => commit({ type: 'capture', unitId: mine.id, targetId: id }) });
+        items.push({
+          kind: 'capture',
+          label: `Capture ${unitName(st, id)} here (uses your move)`,
+          body: ['Capture ', ...named(st.units[id].type, st.units[id].player), note('here')],
+          run: () => commit({ type: 'capture', unitId: mine.id, targetId: id }),
+        });
       }
       items.push(...mergeHereItems(st, mine));
     }
@@ -524,15 +572,18 @@ function onHexClick(k, ev) {
     return;
   }
   for (const u of selectable) {
-    items.push({ label: `Select ${unitLabel(u)}`, subtle: true, run: () => select(u.id) });
+    items.push({ kind: 'select', label: `Select ${unitLabel(u)}`, body: ['Select ', ...named(u.type, u.player)], run: () => select(u.id) });
   }
   showMenu(items, ev.clientX, ev.clientY);
 }
 
 function showMenu(items, x, y) {
   const menu = $('menu');
+  const mover = liveUnit(ui.selected());
   menu.replaceChildren(...items.map((it) =>
-    h('button', { class: it.subtle ? 'subtle' : it.merge ? 'merge' : '', onclick: () => { hideMenu(); it.run(); } }, it.label)));
+    h('button', { class: `mi ${it.kind}`, title: it.label, 'aria-label': it.label, onclick: () => { hideMenu(); it.run(); } },
+      h('span', { class: 'mi-icon' }, ICON[it.kind](mover ? mover.player : ui.state().current)),
+      h('span', { class: 'mi-body' }, ...it.body))));
   menu.hidden = false;
   const w = menu.offsetWidth;
   const hgt = menu.offsetHeight;

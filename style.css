@@ -262,7 +262,15 @@ details[open] > summary { margin-bottom: 8px; }
 }
 .menu[hidden], .toast[hidden] { display: none; }
 .menu button { border: 0; text-align: left; border-radius: 5px; background: transparent; }
-.menu button.subtle { color: var(--muted); }
+/* A choice: an icon column, then a word or two with unit badges (see ICON in ui.js). */
+.menu .mi { display: flex; align-items: center; gap: 8px; padding: 7px 10px; }
+.mi-icon { width: 16px; flex: none; display: grid; place-items: center; font-size: 17px; font-weight: 800; line-height: 1; }
+.mi-body { display: flex; align-items: center; flex-wrap: wrap; gap: 3px; white-space: pre; }
+.mi.capture .mi-icon { color: var(--danger); }
+.mi.merge .mi-icon { color: var(--merge-ink); }
+.mi.select { color: var(--muted); }
+.mi-token { flex: none; overflow: visible; }
+.mi-split { display: inline-flex; align-items: center; gap: 2px; margin-right: 4px; padding-right: 6px; border-right: 1px solid var(--line); }
 
 .toast {
   position: fixed;
