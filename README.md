@@ -9,7 +9,7 @@ Serve the folder and open it in a browser, e.g. `python3 -m http.server` and the
 - `index.html?quick` skips the build phase with a random setup.
 - **Play the computer** from the Menu, as Blue or Red, on Easy or Hard. `index.html?vs=hard` (or `vs=easy`, add `&side=red` to play Red) starts one straight away. It runs in your browser, so there's still no server.
 - Keys: `E` end turn (or pass), `Z` undo, `Esc` deselect or close the menu.
-- The game fills the window. Whose turn it is sits at the top left, and what you can do right now is under the board: placing pieces, ending the turn, and the selected unit with its split, merge and capture buttons. Online play, settings, rules and the log are in the **Menu** (top right), which opens full screen.
+- The game fills the window. Whose turn it is sits at the top left, and what you can do right now is in a panel beside the board (under it on a narrow screen): placing pieces, ending the turn, and the selected unit with its split, merge and capture buttons. The panel scrolls on its own, so the board keeps its size whatever the panel shows. Online play, settings, rules and the log are in the **Menu** (top right), which opens full screen.
 - Dark mode follows your system. The **Theme** setting in the Menu can set Light or Dark instead, and the browser remembers it.
 - Hover any unit to see curved arrows from every enemy unit attacking it, with the total vs its defence.
 - To move, select a unit and click where it should go, or drag it there (works on touch screens). An arrow shows where it's heading: in your colour if it can get there, magenta if it would capture, grey if it can't. A hex more than one step away is reached by the shortest route that doesn't fight on the way.

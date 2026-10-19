@@ -1053,7 +1053,8 @@ function renderHoverInfo() {
 // ---------------------------------------------------------------- side panel
 
 // The game fills the window. Over the board's top corners: whose turn it is (renderStatus)
-// and the menu button. Under the board, the dock (renderDock): what you can do right now.
+// and the menu button. Beside the board on wide screens, under it on narrow ones, the dock
+// (renderDock): what you can do right now. Its size never changes the board's (see .game in style.css).
 // Everything else is in the menu (renderPanel), a full-screen sheet that scrolls.
 
 function renderStatus() {

@@ -42,18 +42,25 @@
 body { margin: 0; background: var(--bg); }
 
 /* ---- full-screen game: board, with whose turn and the menu button over its top corners,
-        and the dock (what you can do now) under it. Nothing on the page scrolls. ---- */
+        and the dock (what you can do now) beside or under it. Nothing on the page scrolls.
+        The board's size comes from the window alone, never from what the dock holds: the dock
+        has a fixed size and scrolls inside, so the board doesn't jump when the cards change. ---- */
 html, body { height: 100%; }
 body { overflow: hidden; }
 .game {
+  --board-ratio: 500 / 490;   /* the board's viewBox (ui.js mount): height / width */
+  --dock-min: 180px;          /* narrow screens: the least height left for the dock */
+  --side: clamp(300px, 30vw, 400px); /* wide screens: the dock's width */
   position: relative;
   height: 100vh;
   height: 100dvh;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-areas: "board" "dock";
+  /* Narrow screens: the board gets the height its width needs (or all but --dock-min), the dock the rest. */
+  grid-template-rows: min(calc(100vw * var(--board-ratio)), calc(100dvh - var(--dock-min))) minmax(0, 1fr);
   background: var(--table);
 }
-#board { flex: 1 1 0; min-height: 0; width: 100%; display: block; user-select: none; }
+#board { grid-area: board; width: 100%; height: 100%; min-height: 0; display: block; user-select: none; }
 
 .topbar {
   position: absolute; top: 0; left: 0; right: 0;
@@ -71,8 +78,8 @@ body { overflow: hidden; }
 .menu-btn { font-weight: 600; box-shadow: 0 2px 8px var(--shadow); white-space: nowrap; }
 
 .dock {
-  flex: none;
-  max-height: 50dvh;
+  grid-area: dock;
+  min-height: 0;
   overflow-y: auto;
   background: var(--bg);
   border-top: 1px solid var(--line);
@@ -89,6 +96,20 @@ body { overflow: hidden; }
   font-size: 12.5px; color: var(--ink);
 }
 @media (hover: none) { .hover-info { display: none; } } /* nothing to hover on a touch screen */
+
+/* Wide screens: the dock is a column down the right, the board fills the rest at full height. */
+@media (min-aspect-ratio: 1/1) and (min-width: 760px) {
+  .game {
+    grid-template-areas: "board dock";
+    grid-template-columns: minmax(0, 1fr) var(--side);
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .topbar { right: var(--side); } /* over the board only */
+  .dock { display: flex; flex-direction: column; border-top: 0; border-left: 1px solid var(--line); }
+  .dock-cards { flex-direction: column; flex-wrap: nowrap; align-items: stretch; }
+  .dock .card { flex: none; max-width: none; }
+  .hover-info { margin: auto 0 0; padding-top: 8px; } /* at the foot of the column */
+}
 
 /* ---- the menu: a full-screen sheet that scrolls ---- */
 .sheet { position: fixed; inset: 0; z-index: 30; overflow-y: auto; background: var(--bg); }
