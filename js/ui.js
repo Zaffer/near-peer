@@ -16,7 +16,8 @@ import * as MapView from './mapview.js';
 import * as UnitArt from './unitart.js';
 import * as FX from './effects.js';
 import * as Online from './online.js';
-import { claudeGame } from './versus.js';
+import { aiGame } from './versus.js';
+import { LEVELS } from './ai.js';
 import { signal, computed, effect, batch, untracked } from './signals.js';
 
 const SIZE = 54;
@@ -72,6 +73,9 @@ const ui = {
 ui.state = computed(() => ui.game().state());
 ui.history = computed(() => ui.game().history());
 ui.online = computed(() => (ui.game().roomId ? ui.game() : null));
+// The seat this computer plays, when the other side is someone else (online) or the computer:
+// 0 Blue, 1 Red, null watching. undefined in a game on one computer, where you play both sides.
+ui.seat = computed(() => (ui.game().seat ? ui.game().seat() : undefined));
 // The selected unit's id, while it's alive and the same player's turn it was picked in.
 ui.selected = computed(() => {
   const sel = ui.selection();
@@ -164,11 +168,11 @@ function h(tag, props, ...kids) {
 }
 
 const P = (p) => R.players[p];
-// Red plays from the top of the board, so online the board is turned round for them:
-// their side is at the bottom, as Blue's is. Everything is drawn through pos(), so text stays upright.
+// Red plays from the top of the board, so online or against the computer the board is turned round
+// for them: their side is at the bottom, as Blue's is. Everything is drawn through pos(), so text stays upright.
 const pos = (k) => {
   const p = Hex.toPixel(k, SIZE);
-  return ui.online() && ui.online().seat() === 1 ? { x: -p.x, y: -p.y } : p;
+  return ui.seat() === 1 ? { x: -p.x, y: -p.y } : p;
 };
 const points = (k, size) => {
   const { x, y } = pos(k);
@@ -280,9 +284,9 @@ function randomFill() {
 // Start (create = true) or rejoin an online game. The room id goes in the address,
 // so the address is the link to send the other player.
 function goOnline(roomId, create) {
-  if (ui.online()) ui.online().leave();
+  leaveGame();
   const url = new URL(location.href);
-  url.searchParams.delete('quick');
+  for (const k of ['quick', 'vs', 'side']) url.searchParams.delete(k);
   url.searchParams.set('room', roomId);
   window.history.replaceState(null, '', url);
   sharedHover = null;
@@ -293,31 +297,55 @@ function goOnline(roomId, create) {
   });
 }
 
+// Back to a game on this computer, leaving an online game or the computer.
 function goOffline() {
-  ui.online().leave();
+  leaveGame();
   const url = new URL(location.href);
-  url.searchParams.delete('room');
+  for (const k of ['room', 'vs', 'side']) url.searchParams.delete(k);
   window.history.replaceState(null, '', url);
-  ui.game(localGame());
+  batch(() => {
+    ui.game(localGame());
+    ui.selection(null);
+  });
 }
 
-// Why you can't act right now (online).
+// Stop the online connection or the computer player, if any.
+function leaveGame() {
+  if (ui.game().leave) ui.game().leave();
+}
+
+// Play the computer at `level`, taking `seat`. The address says so, so a reload starts a new game the same way.
+function playComputer(seat, level) {
+  leaveGame();
+  const url = new URL(location.href);
+  for (const k of ['room', 'quick']) url.searchParams.delete(k);
+  url.searchParams.set('vs', level);
+  url.searchParams.set('side', seat ? 'red' : 'blue');
+  window.history.replaceState(null, '', url);
+  batch(() => {
+    ui.game(aiGame({ seat, level }));
+    ui.selection(null);
+    ui.autoPlace(false);
+  });
+}
+
+// Why you can't act right now (online, or against the computer).
 function waitText() {
   const o = ui.online();
   const st = ui.state();
-  if (!o) return st.phase === 'over' ? 'The game is over' : 'Claude is thinking'; // ?vs=claude
+  if (!o) return st.phase === 'over' ? 'The game is over' : 'The computer is thinking';
   if (o.seat() === null) return 'You are watching this game';
   if (!o.opponent()) return `Waiting for ${P(1 - o.seat()).name} to join`;
   if (st.phase === 'over') return 'The game is over';
   return `Waiting for ${P(st.current).name} to play`;
 }
 
-// Online stand-in for "Random-place the rest": while switched on, one of your
-// pieces is placed at random each time it's your turn to build. Runs as an
-// effect, so it goes again after each move; a new state cancels the wait.
+// Online and against the computer, the stand-in for "Random-place the rest": while
+// switched on, one of your pieces is placed at random each time it's your turn to
+// build. Runs as an effect, so it goes again after each move; a new state cancels the wait.
 function autoPlace() {
   const st = ui.state();
-  if (!ui.online() || !buildKind(st)) {
+  if (ui.seat() === undefined || !buildKind(st)) {
     if (untracked(ui.autoPlace)) ui.autoPlace(false);
     return undefined;
   }
@@ -1039,7 +1067,7 @@ function renderStatus() {
     stalemate ? h('strong', {}, 'Stalemate')
       : over ? h('strong', {}, chip(st.winner), `${P(st.winner).name} wins`)
       : h('span', {}, chip(st.current), h('strong', {}, P(st.current).name), ' to play',
-        ui.online() && ui.online().seat() === st.current ? ' (you)' : null),
+        ui.seat() === st.current ? ' (you)' : ui.game().vs ? ' (computer)' : null),
     h('span', { class: 'muted' }, ` · ${phase}`));
 }
 
@@ -1068,7 +1096,7 @@ function inviteCard(o) {
 
 function renderPanel() {
   const st = ui.state();
-  $('panel').replaceChildren(onlineCard(st), controlsCard(), rulesCard(st), logCard(st));
+  $('panel').replaceChildren(computerCard(), onlineCard(st), controlsCard(), rulesCard(st), logCard(st));
 }
 
 function openSheet(open) {
@@ -1120,13 +1148,13 @@ function buildCard(st) {
       `${P(1 - st.current).name} has ${opp} left.`),
     h('div', { class: 'row' },
       undoButton(),
-      ui.online() ? autoPlaceButton() : ui.game().vs ? null : h('button', { onclick: randomFill }, 'Random-place the rest of this phase')));
+      ui.seat() !== undefined ? autoPlaceButton() : h('button', { onclick: randomFill }, 'Random-place the rest of this phase')));
 }
 
 const undoButton = () => h('button', { disabled: !ui.game().canUndo(), onclick: undo }, 'Undo (Z)');
 
 function autoPlaceButton() {
-  if (!ui.online() || ui.online().seat() === null) return null;
+  if (ui.seat() === undefined || ui.seat() === null) return null;
   return h('button', { onclick: () => ui.autoPlace(!ui.autoPlace()) },
     ui.autoPlace() ? 'Stop placing at random' : 'Place my pieces at random');
 }
@@ -1265,6 +1293,37 @@ function controlsCard() {
       toggle('threats', 'Show attack arrows on every enemy you can capture'),
       toggle('coords', 'Show hex coordinates')),
     h('div', { class: 'settings' }, styleSelect('Map', 'mapStyle', 'map-style'), styleSelect('Units', 'unitStyle', 'unit-style'), themeSelect()));
+}
+
+// Play against the computer: pick a side (and a level, once there's more than one).
+let computerLevel = Object.keys(LEVELS)[0];
+function computerCard() {
+  const g = ui.game();
+  const levels = Object.keys(LEVELS);
+  if (g.vs) {
+    return h('section', { class: 'card' },
+      h('h2', {}, 'Playing the computer'),
+      h('div', {}, 'You are ', chip(g.seat()), h('strong', {}, P(g.seat()).name),
+        h('span', { class: 'muted' }, ` · ${LEVELS[g.vs].name}${g.thinking() ? ' · thinking…' : ''}`)),
+      h('div', { class: 'row' },
+        h('button', { onclick: () => { if (confirm('Stop playing the computer?')) goOffline(); } }, 'Stop playing the computer')));
+  }
+  const start = (seat) => {
+    const busy = ui.history().length > 0 || ui.online();
+    if (!busy || confirm('Leave this game and play the computer?')) {
+      playComputer(seat, computerLevel);
+      openSheet(false);
+    }
+  };
+  return h('section', { class: 'card' },
+    h('h2', {}, 'Play the computer'),
+    levels.length > 1 ? h('label', { class: 'setting' }, 'Level ',
+      h('select', { onchange: (e) => { computerLevel = e.target.value; } },
+        levels.map((k) => h('option', { value: k, selected: k === computerLevel }, LEVELS[k].name)))) : null,
+    h('div', { class: 'row' },
+      h('button', { class: 'primary', onclick: () => start(0) }, chip(0), 'Play as Blue (moves first)'),
+      h('button', { onclick: () => start(1) }, chip(1), 'Play as Red')),
+    levels.length > 1 ? null : h('p', { class: 'hint' }, `Level: ${LEVELS[computerLevel].name}.`));
 }
 
 function onlineCard() {
@@ -1411,15 +1470,17 @@ function mergeExample() {
 }
 
 // Handy from the browser console, e.g. NearPeer.ui.state() or NearPeer.commit({ type: 'endTurn' }).
-window.NearPeer = { ui, commit, undo, newGame, randomFill, goOnline };
+window.NearPeer = { ui, commit, undo, newGame, randomFill, goOnline, playComputer };
 
 setupPointer();
 // index.html?room=… joins (or rejoins) that online game.
+// index.html?vs=hard plays the computer at that level (&side=red to play Red).
 // index.html?quick skips straight to the battle with a random setup.
-const room = (new URLSearchParams(location.search).get('room') || '').replace(/[^a-z0-9-]/gi, '').slice(0, 40);
+const params = new URLSearchParams(location.search);
+const room = (params.get('room') || '').replace(/[^a-z0-9-]/gi, '').slice(0, 40);
 if (room) goOnline(room, false);
-else if (new URLSearchParams(location.search).get('vs') === 'claude') ui.game(claudeGame()); // temporary, see tools/bridge.py
-else if (new URLSearchParams(location.search).has('quick')) {
+else if (LEVELS[params.get('vs')]) playComputer(params.get('side') === 'red' ? 1 : 0, params.get('vs'));
+else if (params.has('quick')) {
   randomFill();
   randomFill();
 }

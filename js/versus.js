@@ -1,61 +1,95 @@
 /*
- * Near Peer — temporary: play against Claude (index.html?vs=claude).
+ * Near Peer — playing against the computer (the Menu, or index.html?vs=hard&side=red).
  *
- * Same shape as an online game (online.js join), but the record lives on
- * tools/bridge.py instead of going peer to peer. You play Blue; Claude plays
- * Red with tools/claude.js. The page posts the record after each of your moves
- * and checks the bridge every second for Claude's. Every record is replayed
- * through the engine, so Claude can't make an illegal move either.
+ * Same shape as localGame() in ui.js and an online game (online.js join), so the
+ * page doesn't mind which one it's showing. You take one seat and the computer
+ * (ai.js) plays the other. It thinks in a Web Worker (ai-worker.js), so the page
+ * stays responsive, and every move it sends back is applied through the engine.
  */
-import { replay, canUndo } from './online.js';
+import * as E from './engine.js';
 import { signal, batch } from './signals.js';
 
-const CLAUDE = 1;
-const API = 'api/game';
+const MIN_DELAY = 400; // ms: even an instant reply waits this long, so you can see what happened
 
-function claudeGame() {
-  const game = { rev: 0, batches: [] };
-  const start = replay(game.batches);
-  const g = { vs: 'claude', state: signal(start.state), history: signal(start.history), lastChange: null };
-  const setGame = ({ state, history }, actions) => batch(() => {
-    g.lastChange = { prev: g.state(), next: state, actions };
-    g.state(state);
-    g.history(history);
-  });
-  // A change made on this side: the new record, and the game it gives.
-  const change = (batches, next, actions = null) => {
-    game.batches = batches;
-    game.rev += 1;
-    setGame(next, actions);
-    fetch(API, { method: 'POST', body: JSON.stringify(game) }).catch((e) => console.warn('vs Claude:', e.message));
+// seat: the one you play (0 Blue, 1 Red). level: a key of LEVELS in ai.js.
+function aiGame({ seat = 0, level = 'hard' } = {}) {
+  const ai = 1 - seat;
+  const g = { vs: level, state: signal(E.newGame()), history: signal([]), lastChange: null, thinking: signal(false) };
+  let worker = null;
+  let asked = 0; // the latest request; replies to older ones (from before an undo or a new game) are dropped
+  let sentAt = 0;
+
+  const set = (next, history, actions) => {
+    batch(() => {
+      g.lastChange = { prev: g.state(), next, actions };
+      g.state(next);
+      g.history(history);
+    });
+    think();
   };
 
-  async function pull() {
-    try {
-      const msg = await (await fetch(API, { cache: 'no-store' })).json();
-      if (msg.rev <= game.rev) return;
-      const next = replay(msg.batches);
-      const appended = msg.batches.length === game.batches.length + 1;
-      game.rev = msg.rev;
-      game.batches = msg.batches;
-      setGame(next, appended ? msg.batches[msg.batches.length - 1].actions : null);
-    } catch (e) {
-      console.warn('vs Claude:', e.message);
+  function think() {
+    const st = g.state();
+    asked += 1;
+    const mine = st.current === ai && st.phase !== 'over';
+    g.thinking(mine);
+    if (!mine) return;
+    if (!worker) {
+      worker = new Worker(new URL('./ai-worker.js', import.meta.url), { type: 'module' });
+      worker.onmessage = reply;
+      worker.onerror = (e) => {
+        console.error('Computer player:', e.message);
+        g.thinking(false);
+      };
     }
+    // The log isn't needed to choose a move, and leaving it out keeps the messages small.
+    const bare = (s) => Object.assign({}, s, { log: [] });
+    sentAt = Date.now();
+    worker.postMessage({
+      id: asked, level, state: bare(st), history: g.history().filter((h) => h.phase === 'battle').map(bare),
+    });
   }
-  pull();
-  setInterval(pull, 1000);
 
-  g.isMyTurn = (st = g.state()) => st.current !== CLAUDE && st.phase !== 'over';
-  g.canUndo = () => canUndo(game.batches, g.state(), 1 - CLAUDE);
-  // quiet: don't animate (a whole build phase placed at random).
-  g.play = (actions, next, { quiet = false } = {}) => change(
-    game.batches.concat([{ by: g.state().current, actions }]),
-    { state: next, history: g.history().concat([g.state()]) },
-    quiet ? null : actions);
-  g.undo = () => change(game.batches.slice(0, -1), replay(game.batches.slice(0, -1)));
-  g.reset = () => change([], replay([]));
+  function reply({ data: { id, actions } }) {
+    if (id !== asked) return;
+    setTimeout(() => {
+      if (id !== asked) return;
+      let next = g.state();
+      try {
+        for (const a of actions) next = E.apply(next, a);
+      } catch (e) {
+        console.error('Computer player made an illegal move:', e.message, actions);
+        g.thinking(false);
+        return;
+      }
+      set(next, g.history().concat([g.state()]), actions);
+    }, Math.max(0, MIN_DELAY - (Date.now() - sentAt)));
+  }
+
+  g.seat = () => seat;
+  g.isMyTurn = (st = g.state()) => st.current === seat && st.phase !== 'over';
+  // quiet: don't animate (pieces placed at random).
+  g.play = (actions, next, { quiet = false } = {}) => set(next, g.history().concat([g.state()]), quiet ? null : actions);
+  // Undo takes back your last move and whatever the computer played after it.
+  const lastMine = () => {
+    const h = g.history();
+    let i = h.length - 1;
+    while (i >= 0 && h[i].current !== seat) i--;
+    return i;
+  };
+  g.canUndo = () => lastMine() >= 0;
+  g.undo = () => {
+    const i = lastMine();
+    if (i >= 0) set(g.history()[i], g.history().slice(0, i), null);
+  };
+  g.reset = () => set(E.newGame(), [], null);
+  g.leave = () => {
+    asked += 1;
+    if (worker) worker.terminate();
+    worker = null;
+  };
+  think(); // the computer moves first when it plays Blue
   return g;
 }
 
-export { claudeGame };
+export { aiGame };
