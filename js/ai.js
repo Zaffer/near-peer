@@ -149,7 +149,9 @@ const fromTT = (v, ply) => (v > WIN - 1000 ? v - ply : v < -(WIN - 1000) ? v + p
 
 // → { depth, nodes, moves: [{ s, key, actions, score }] best first }.
 // seen: how often each position (by key) has come up this game; moves back into one cost w.repeat each time.
-function search(b, root, { timeMs = 1000, maxDepth = 30, rand = Math.random, w = W, seen = new Map() } = {}) {
+// qdepth: how many captures and wins it keeps following past maxDepth (0: none, so with maxDepth 1
+// it doesn't even look at the reply to its move).
+function search(b, root, { timeMs = 1000, maxDepth = 30, qdepth = QDEPTH, rand = Math.random, w = W, seen = new Map() } = {}) {
   const deadline = now() + timeMs;
   const tt = new Map(); // position key → { depth, value, flag, best }
   const cache = new Map(); // position key → its turns, best-looking first (for positions searched 2+ deep)
@@ -191,7 +193,7 @@ function search(b, root, { timeMs = 1000, maxDepth = 30, rand = Math.random, w =
 
   function negamax(s, key, depth, alpha, beta, ply) {
     if (s.winner !== PLAYING) return terminal(s, ply, w);
-    if (depth <= 0) return quiesce(s, alpha, beta, ply, QDEPTH);
+    if (depth <= 0) return quiesce(s, alpha, beta, ply, qdepth);
     if ((++nodes & 1023) === 0 && now() > deadline) throw STOP;
     const hit = tt.get(key);
     if (hit && hit.depth >= depth) {
@@ -411,10 +413,13 @@ function replay(es, actions) {
 }
 
 // The levels you can play against, easiest first. name: shown in the Menu. timeMs: thinking time per
-// turn. maxDepth: how many turns ahead it may look. mistakes: the chance that a move is picked at
-// random instead (a blunder now and then). weights: changes to W for this level.
+// turn. maxDepth: how many turns ahead it may look. qdepth: see search(). mistakes: the chance that
+// a move is picked at random instead (a blunder now and then). weights: changes to W for this level.
+// Easy only looks at its own move: it takes a capture or a win it can see, but never thinks about
+// your reply, so it walks into threats and doesn't stop your wins.
 const LEVELS = {
-  easy: { name: 'Easy', timeMs: 300, maxDepth: 2, mistakes: 0.3, weights: { buildMs: 200 } },
+  easy: { name: 'Easy', timeMs: 200, maxDepth: 1, qdepth: 0, mistakes: 0.4, weights: { buildMs: 100 } },
+  medium: { name: 'Medium', timeMs: 300, maxDepth: 2, mistakes: 0.3, weights: { buildMs: 200 } },
   hard: { name: 'Hard', timeMs: 1000 },
 };
 
@@ -445,7 +450,7 @@ function choose(es, { level = 'hard', timeMs, seed, history = [], weights, info 
   }
   const result = w.search === 'mcts'
     ? mcts(S.board(es), S.fromEngine(es), { timeMs: timeMs ?? cfg.timeMs, rand, w })
-    : search(S.board(es), S.fromEngine(es), { timeMs: timeMs ?? cfg.timeMs, maxDepth: cfg.maxDepth, rand, w, seen });
+    : search(S.board(es), S.fromEngine(es), { timeMs: timeMs ?? cfg.timeMs, maxDepth: cfg.maxDepth, qdepth: cfg.qdepth, rand, w, seen });
   if (info) Object.assign(info, { depth: result.depth, nodes: result.nodes, score: result.moves[0] && result.moves[0].score });
   for (const t of result.moves) {
     if (replay(es, t.actions)) return t.actions;
