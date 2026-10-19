@@ -633,7 +633,7 @@ function renderBoard() {
     if (!mapView) drawTile(k, hex, t, x, y, look, groundFill(hex), tiles);
     if (ui.settings.coords()) svgText(k, x, y + SIZE * 0.78, 'coord', tiles);
 
-    // "grab": a unit here can be dragged (and the browser won't scroll the page instead).
+    // "grab": a unit here can be dragged.
     const grab = E.unitsAt(st, k).some((u) => canAct(st, u));
     const hit = svg('polygon', { points: points(k, SIZE), class: grab ? 'hit grab' : 'hit' }, hits);
     hit.addEventListener('click', (ev) => onHexClick(k, ev));
@@ -974,9 +974,13 @@ function dropOn(id, k, ev) {
 }
 
 // Mouse, pen and touch alike: press on one of your units and drag to where it should go.
-// A press without much movement is an ordinary click.
+// A press without much movement is an ordinary click. Drop it back on its own hex or off the
+// board to cancel. A mouse sets the hovered hex as it enters each tile; a finger or pen is held
+// by the board while it's down, so tiles never see it enter, and pointermove sets it instead.
+// That way dragging over an enemy shows the attack on it, as it does with a mouse.
 function setupPointer() {
   const root = $('board');
+  root.addEventListener('contextmenu', (ev) => ev.preventDefault()); // a long press isn't a right click
   root.addEventListener('pointerdown', (ev) => {
     if (ev.button !== 0) return;
     const p = boardPoint(ev);
@@ -992,6 +996,7 @@ function setupPointer() {
   root.addEventListener('pointermove', (ev) => batch(() => {
     ui.pointer(boardPoint(ev));
     shareHover(hexAt(ui.pointer()));
+    if (ev.pointerType !== 'mouse') ui.hover(hexAt(ui.pointer()));
     const d = ui.drag();
     if (d && d.pointerId === ev.pointerId && !d.active && Math.hypot(ev.clientX - d.x, ev.clientY - d.y) > 8) {
       ui.drag(Object.assign({}, d, { active: true }));
@@ -1005,6 +1010,7 @@ function setupPointer() {
     ui.drag(null);
     if (ev.pointerType !== 'mouse') { // no cursor to follow on a touch screen
       ui.pointer(null);
+      ui.hover(null);
       shareHover(null);
     }
     if (d && d.active) {
@@ -1013,9 +1019,10 @@ function setupPointer() {
       dropOn(d.id, hexAt(boardPoint(ev)), ev);
     }
   }));
-  root.addEventListener('pointercancel', () => batch(() => {
+  root.addEventListener('pointercancel', (ev) => batch(() => {
     ui.drag(null);
     ui.pointer(null);
+    if (ev.pointerType !== 'mouse') ui.hover(null);
     shareHover(null);
   }));
   root.addEventListener('pointerleave', () => {
