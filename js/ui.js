@@ -875,16 +875,21 @@ function drawUnit(u, cx, cy, r, parent) {
   }
   drawToken(u, cx, cy, r, g);
 
-  // ⚔ atk  🛡 def under the counter; green/red when terrain changes the number.
+  // ⚔ atk  🛡 def under the counter, and 👢 move when it isn't the usual 1 (a Recon Drone, a minefield…);
+  // green/red when terrain changes the number. Three badges on a shared hex (the smaller counters) sit
+  // closer together and move out from the middle of the hex, so they don't run into the other unit's.
   const sy = cy + r + 11;
-  const statBadge = (name, iconX, textX) => {
-    drawIcon('stats', name, cx + iconX, sy - 3.5, 10, '#fff', g, { width: 8 });
-    drawIcon('stats', name, cx + iconX, sy - 3.5, 10, '#222', g, { width: 3 });
-    const t = svgText(String(sts[name].total), cx + textX, sy, 'ustats', g);
+  const shown = sts.movement.total !== 1 || sts.movement.mod ? ['attack', 'defence', 'movement'] : ['attack', 'defence'];
+  const tight = r < 18 && shown.length === 3;
+  const gap = tight ? 12.5 : 18;
+  const mid = cx + (tight ? Math.sign(cx - pos(u.hex).x) * 4 : 0);
+  const statBadge = (name, x) => {
+    drawIcon('stats', name, x - (tight ? 3 : 4), sy - 3.5, tight ? 8.5 : 10, '#fff', g, { width: 8 });
+    drawIcon('stats', name, x - (tight ? 3 : 4), sy - 3.5, tight ? 8.5 : 10, '#222', g, { width: 3 });
+    const t = svgText(String(sts[name].total), x + (tight ? 3.5 : 4.5), sy, `ustats${tight ? ' small' : ''}`, g);
     if (sts[name].mod) t.classList.add(sts[name].mod > 0 ? 'buff' : 'debuff');
   };
-  statBadge('attack', -13, -4.5);
-  statBadge('defence', 5.5, 13.5);
+  shown.forEach((name, i) => statBadge(name, mid + (i - (shown.length - 1) / 2) * gap));
 
   const mv = st.turnState.move;
   if (st.phase === 'battle' && mv && mv.unitId === u.id && !st.turnState.moveDone) {
