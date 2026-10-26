@@ -20,8 +20,9 @@
     import { results as rules } from './tests/rules.test.js';
     import { results as online } from './tests/online.test.js';
     import { results as ai } from './tests/ai.test.js';
+    import { results as stats } from './tests/stats.test.js';
 
-    const results = rules.concat(online, ai);
+    const results = rules.concat(online, ai, stats);
     const failed = results.filter((r) => !r.ok);
     document.getElementById('summary').innerHTML =
       `<p class="${failed.length ? 'fail' : 'pass'}">${results.length - failed.length}/${results.length} passed</p>`;

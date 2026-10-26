@@ -21,6 +21,8 @@
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="The Near Peer hex board with Blue and Red units either side of a river">
   <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:site" content="@_jameswiles">
+  <meta name="twitter:creator" content="@_jameswiles">
   <meta name="twitter:title" content="Near Peer">
   <meta name="twitter:description" content="A two-player hex strategy game. Blue vs Red: use terrain, fortify, merge units and capture.">
   <meta name="twitter:image" content="https://zaffer.github.io/near-peer/og-image.png">
@@ -58,6 +60,9 @@
   <div id="menu" class="menu" hidden></div>
   <div id="toast" class="toast" hidden></div>
 
+  <!-- Anonymous statistics (GoatCounter, no cookies): page views, and each game played as an event (js/stats.js).
+       tools/games.js reads the site's address from here. -->
+  <script data-goatcounter="https://nearpeer.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
   <!-- ES modules: ui.js imports the rest. Browsers won't load modules from a file, so serve the folder (see README). -->
   <script type="module" src="js/ui.js"></script>
 </body>

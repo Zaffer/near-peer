@@ -88,6 +88,7 @@ function join(roomId, { create = false } = {}) {
     hovers: signal({}),
     lastChange: null,
   };
+  let undos = 0; // taken back on this side, since this page joined
   let send = () => {};
   let sendHover = () => {};
   let room = null;
@@ -201,6 +202,7 @@ function join(roomId, { create = false } = {}) {
   };
   on.undo = () => {
     game.batches = game.batches.slice(0, -1);
+    undos += 1;
     game.rev += 1;
     setGame(replay(game.batches), null);
     broadcast();
@@ -208,10 +210,13 @@ function join(roomId, { create = false } = {}) {
   on.reset = () => {
     if (on.seat() === null) return;
     game.batches = [];
+    undos = 0;
     game.rev += 1;
     setGame(replay(game.batches), null);
     broadcast();
   };
+  // What stats.js sends. Only Blue sends it, so each game is sent once.
+  on.record = () => (on.seat() === 0 ? { mode: 'online', seat: 0, undos, batches: game.batches } : null);
   on.leave = () => {
     on.left = true;
     if (room) room.leave();

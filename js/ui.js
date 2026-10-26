@@ -16,6 +16,7 @@ import * as MapView from './mapview.js';
 import * as UnitArt from './unitart.js';
 import * as FX from './effects.js';
 import * as Online from './online.js';
+import * as Stats from './stats.js';
 import { aiGame } from './versus.js';
 import { LEVELS } from './ai.js';
 import { signal, computed, effect, batch, untracked } from './signals.js';
@@ -35,19 +36,33 @@ const store = {
 // join), so the rest of the page doesn't mind which one it's showing.
 function localGame() {
   const g = { state: signal(E.newGame()), history: signal([]), lastChange: null };
+  let batches = []; // { by, actions } for each move, which replay the game (online.js replay)
+  let undos = 0;
   const set = (next, history, actions) => batch(() => {
     g.lastChange = { prev: g.state(), next, actions };
     g.state(next);
     g.history(history);
   });
   // quiet: don't animate (a whole build phase placed at random).
-  g.play = (actions, next, { quiet = false } = {}) => set(next, g.history().concat([g.state()]), quiet ? null : actions);
+  g.play = (actions, next, { quiet = false } = {}) => {
+    batches = batches.concat([{ by: g.state().current, actions }]);
+    set(next, g.history().concat([g.state()]), quiet ? null : actions);
+  };
   g.canUndo = () => g.history().length > 0;
   g.undo = () => {
     const h = g.history();
-    if (h.length) set(h[h.length - 1], h.slice(0, -1), null);
+    if (!h.length) return;
+    batches = batches.slice(0, -1);
+    undos += 1;
+    set(h[h.length - 1], h.slice(0, -1), null);
   };
-  g.reset = () => set(E.newGame(), [], null);
+  g.reset = () => {
+    batches = [];
+    undos = 0;
+    set(E.newGame(), [], null);
+  };
+  // What stats.js sends.
+  g.record = () => ({ mode: 'local', undos, batches });
   g.isMyTurn = () => true;
   return g;
 }
@@ -644,6 +659,12 @@ function mount() {
   effect(renderDock);
   effect(renderPanel);
   effect(autoPlace);
+  // Every change to the game goes to stats.js, which sends the game when it ends or is left.
+  effect(() => {
+    const g = ui.game();
+    const st = ui.state();
+    Stats.note(g, g.record(), st);
+  });
   // A menu offers moves in the state it was opened in, so it goes when the state changes.
   effect(() => { ui.state(); hideMenu(); });
 }

@@ -27,6 +27,12 @@ Click **Create a game and get a link** and send the link to a friend. They play 
 - To play someone on another computer, host the folder online (e.g. GitHub Pages). A link from `localhost` only works on your own machine, which is handy for testing in two tabs.
 - Some strict office or mobile networks block direct connections.
 
+## Statistics
+The page counts visits with [GoatCounter](https://www.goatcounter.com) (no cookies, nothing about the player). Each game played is sent too, as a GoatCounter event whose name is the whole game record, compressed: when it ends, and when it's left unfinished. Even a game that runs to turn 150 is under 1000 characters, so it's usually one event. Nothing is sent from `localhost`.
+- The site is set in the script tag in `index.html` (`nearpeer.goatcounter.com`).
+- `GOATCOUNTER_TOKEN=… bun tools/games.js --out games.json` fetches the games, replays each through the engine and prints how they ended for each way of playing. The token is an API token from the GoatCounter site's settings that can read statistics.
+- A game only replays under the rules it was played with, so each record carries a hash of `rules.js`. Games from before a rules change are counted but not replayed.
+
 The rules are in [RULES.md](RULES.md). Ideas and past rule decisions are tracked in [AMENDMENTS.md](AMENDMENTS.md). The unit names, the 31 merges and ideas for their abilities are in [UNITS.md](UNITS.md). Open `tests.html` (served, like the game) to run the tests.
 
 ## Roadmap
@@ -56,7 +62,9 @@ An expansion version of the game with the sea and naval units. Nothing is decide
 | `js/online.js` | Online play: joins a peer-to-peer room, sends the game record, replays the other side's moves through the engine, settles who sits where. The room's state, seat, status and peers are signals. |
 | `js/ai.js` | The computer player. Battle: a search over whole turns, several turns deep, scoring positions by material (what each unit's stats are worth; other terms in `W` are off). Build: no rules of thumb; each placement is tried by finishing the build at random many times and searching the battles that follow (Monte Carlo). `LEVELS` lists the levels: Easy only looks at its own move (never your reply) and plays a random move 40% of the time; Medium looks 2 turns ahead and plays a random move 30% of the time. Every move it picks is replayed through the engine first. |
 | `js/ai-sim.js` | A fast copy of the battle rules for the AI to search with, about 150 times faster than the engine. It reads every number and switch from `rules.js`. A unit is just the set of base units in it. |
+| `js/stats.js` | Statistics: turns each game into GoatCounter event names (compressed, split if long) and sends it when it ends or is left. |
 | `js/versus.js`, `js/ai-worker.js` | A game against the computer, with the same shape as a local or online game. The AI thinks in a Web Worker so the page doesn't freeze. |
+| `tools/games.js` | Fetches the games played on the website from GoatCounter, replays them and prints how they ended: `GOATCOUNTER_TOKEN=… bun tools/games.js`. |
 | `tools/arena.js` | Plays the AI against itself, another set of weights, or random moves, without a browser: `bun tools/arena.js 64 200 '{"advance":1.2}' hard`. |
 | `tests/rules.test.js` | One test per rule. Update the matching test when you change a rule on purpose. |
 | `tests/online.test.js` | Online play without the network: replaying the game record, who may undo, who gets which seat. |

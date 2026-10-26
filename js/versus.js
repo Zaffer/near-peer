@@ -18,6 +18,8 @@ function aiGame({ seat = 0, level = 'hard' } = {}) {
   let worker = null;
   let asked = 0; // the latest request; replies to older ones (from before an undo or a new game) are dropped
   let sentAt = 0;
+  let batches = []; // { by, actions } for each move, which replay the game (online.js replay)
+  let undos = 0;
 
   const set = (next, history, actions) => {
     batch(() => {
@@ -62,6 +64,7 @@ function aiGame({ seat = 0, level = 'hard' } = {}) {
         g.thinking(false);
         return;
       }
+      batches = batches.concat([{ by: ai, actions }]);
       set(next, g.history().concat([g.state()]), actions);
     }, Math.max(0, MIN_DELAY - (Date.now() - sentAt)));
   }
@@ -69,7 +72,10 @@ function aiGame({ seat = 0, level = 'hard' } = {}) {
   g.seat = () => seat;
   g.isMyTurn = (st = g.state()) => st.current === seat && st.phase !== 'over';
   // quiet: don't animate (pieces placed at random).
-  g.play = (actions, next, { quiet = false } = {}) => set(next, g.history().concat([g.state()]), quiet ? null : actions);
+  g.play = (actions, next, { quiet = false } = {}) => {
+    batches = batches.concat([{ by: g.state().current, actions }]);
+    set(next, g.history().concat([g.state()]), quiet ? null : actions);
+  };
   // Undo takes back your last move and whatever the computer played after it.
   const lastMine = () => {
     const h = g.history();
@@ -80,9 +86,18 @@ function aiGame({ seat = 0, level = 'hard' } = {}) {
   g.canUndo = () => lastMine() >= 0;
   g.undo = () => {
     const i = lastMine();
-    if (i >= 0) set(g.history()[i], g.history().slice(0, i), null);
+    if (i < 0) return;
+    batches = batches.slice(0, i);
+    undos += 1;
+    set(g.history()[i], g.history().slice(0, i), null);
   };
-  g.reset = () => set(E.newGame(), [], null);
+  g.reset = () => {
+    batches = [];
+    undos = 0;
+    set(E.newGame(), [], null);
+  };
+  // What stats.js sends.
+  g.record = () => ({ mode: `vs-${level}`, seat, undos, batches });
   g.leave = () => {
     asked += 1;
     if (worker) worker.terminate();
