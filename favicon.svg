@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- A hex tile: Red's zone above, Blue's below, the river between. -->
+  <defs>
+    <clipPath id="hex"><path d="M32 2 L58 17 V47 L32 62 L6 47 V17 Z"/></clipPath>
+  </defs>
+  <g clip-path="url(#hex)">
+    <rect width="64" height="64" fill="#2563eb"/>
+    <path d="M0 0 H64 V30 C56 24 48 38 40 32 C32 26 24 40 16 34 C10 30 4 32 0 34 Z" fill="#dc2626"/>
+    <path d="M0 34 C4 32 10 30 16 34 C24 40 32 26 40 32 C48 38 56 24 64 30" fill="none" stroke="#3f7fa8" stroke-width="10"/>
+    <path d="M0 34 C4 32 10 30 16 34 C24 40 32 26 40 32 C48 38 56 24 64 30" fill="none" stroke="#8ec5e3" stroke-width="6"/>
+  </g>
+  <path d="M32 2 L58 17 V47 L32 62 L6 47 V17 Z" fill="none" stroke="#262320" stroke-width="3" stroke-linejoin="round"/>
+</svg>
