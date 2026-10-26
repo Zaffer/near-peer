@@ -52,7 +52,7 @@ function names(id, n, data) {
   return Array.from({ length: parts }, (_, i) => `g/${id}-${n}/${i + 1}of${parts}/${data.slice(i * PART, (i + 1) * PART)}`);
 }
 
-// Event names (any, in any order) → { id, data } for the latest send of each game whose parts all arrived.
+// Event names (any, in any order) → { id, n, data } for the latest send of each game whose parts all arrived.
 function join(paths) {
   const sends = new Map(); // "id-n" → { id, n, parts, got: part → data }
   for (const p of paths) {
@@ -67,7 +67,7 @@ function join(paths) {
   for (const s of sends.values()) {
     if (s.got.size === s.parts && !(latest.get(s.id) && latest.get(s.id).n > s.n)) latest.set(s.id, s);
   }
-  return [...latest.values()].map((s) => ({ id: s.id, data: Array.from({ length: s.parts }, (_, i) => s.got.get(i + 1)).join('') }));
+  return [...latest.values()].map((s) => ({ id: s.id, n: s.n, data: Array.from({ length: s.parts }, (_, i) => s.got.get(i + 1)).join('') }));
 }
 
 // A line for the GoatCounter dashboard: "vs-hard as Red, Blue won, turn 34".

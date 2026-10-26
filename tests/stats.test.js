@@ -44,7 +44,7 @@ await test('a short record is one event name, within GoatCounter\'s 2048 bytes',
   const names = S.names('abc', 1, data);
   eq(names.length, 1);
   ok(names[0].length <= 2048, `${names[0].length} bytes`);
-  eq(S.join(names), [{ id: 'abc', data }]);
+  eq(S.join(names), [{ id: 'abc', n: 1, data }]);
 });
 
 await test('a long record is split, and joined back in any order', async () => {
@@ -52,12 +52,12 @@ await test('a long record is split, and joined back in any order', async () => {
   const names = S.names('abc', 1, data);
   eq(names.length, 3);
   ok(names.every((n) => n.length <= 2048));
-  eq(S.join(names.reverse()), [{ id: 'abc', data }]);
+  eq(S.join(names.reverse()), [{ id: 'abc', n: 1, data }]);
 });
 
 await test('join keeps the latest send of each game, and skips ones with a part missing', () => {
   const names = [...S.names('a', 1, 'old'), ...S.names('a', 2, 'new'), ...S.names('b', 1, 'y'.repeat(4000)).slice(1), 'game-end', '/'];
-  eq(S.join(names), [{ id: 'a', data: 'new' }]);
+  eq(S.join(names), [{ id: 'a', n: 2, data: 'new' }]);
 });
 
 await test('the dashboard title says who played and how it ended', () => {

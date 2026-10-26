@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Near Peer · Games played</title>
+  <meta name="description" content="How the games of Near Peer played online went, with a replay of every one.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script>
+    // The remembered theme (Light / Dark), as in index.html.
+    try {
+      const t = localStorage.getItem('near-peer:theme');
+      if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+    } catch (e) { /* private window etc. */ }
+  </script>
+  <style>
+    /* The game's page doesn't scroll; this one does. Colours come from style.css. */
+    html, body { height: auto; }
+    body { overflow: auto; }
+    :root {
+      /* Chart colours, checked for colour blindness and contrast against --card in both themes. */
+      --player: light-dark(#1baf7a, #199e70);   /* a person beat the computer */
+      --computer: light-dark(#eb6834, #d95926); /* the computer won */
+      --count: light-dark(#6250d6, #9085e9);    /* a single count */
+      --even: light-dark(#a8a29a, #6b655d);     /* stalemate */
+      --grid: light-dark(#ece8e0, #2e2b27);
+    }
+    .stats { max-width: 980px; margin: 0 auto; padding: 20px 16px 48px; color: var(--ink); }
+    .stats header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin-bottom: 16px; }
+    .stats h1 { margin: 0; font-size: 22px; }
+    .stats header .muted { font-size: 13px; }
+    .stats header .button { margin-left: auto; }
+    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 10px; }
+    .tile { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+    .tile b { display: block; font-size: 26px; line-height: 1.15; font-variant-numeric: tabular-nums; }
+    .tile span { font-size: 12.5px; color: var(--muted); }
+    .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 10px; margin-bottom: 10px; }
+    .stats .card { min-width: 0; }
+    .stats .card > .hint:first-of-type { margin-top: -4px; }
+    .empty { text-align: center; padding: 40px 16px; }
+
+    /* Columns over time or turns: bars from a common baseline, rounded at the data end. */
+    .cols { display: flex; align-items: flex-end; gap: 2px; height: 140px; border-bottom: 1px solid var(--edge);
+      background: linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 100% 50%; }
+    .cols > div { flex: 1; min-width: 0; height: 100%; display: flex; align-items: flex-end; outline-offset: 1px; }
+    .cols > div > i { display: block; width: 100%; background: var(--count); border-radius: 4px 4px 0 0; }
+    .cols > div:hover > i, .cols > div:focus > i { filter: brightness(1.15); }
+    .axis { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
+    .ymax { font-size: 11.5px; color: var(--muted); margin-bottom: 2px; }
+
+    /* Rows of whole-games-split-by-result, and ranked bar lists. */
+    .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--muted); margin: 0 0 8px; }
+    .legend span::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; background: var(--c); }
+    .split { display: grid; grid-template-columns: minmax(70px, max-content) 1fr; gap: 6px 10px; align-items: center; }
+    .split .label { font-size: 13px; }
+    .split .label small { display: block; color: var(--muted); font-size: 11.5px; }
+    .bar { display: flex; gap: 2px; height: 22px; }
+    .bar > div { background: var(--c); color: #fff; font-size: 11.5px; font-weight: 600; display: flex; align-items: center; justify-content: center;
+      overflow: hidden; white-space: nowrap; min-width: 3px; font-variant-numeric: tabular-nums; }
+    .bar > div:first-child { border-radius: 4px 0 0 4px; }
+    .bar > div:last-child { border-radius: 0 4px 4px 0; }
+    .bar > div:only-child { border-radius: 4px; }
+    .bar > div:hover, .bar > div:focus { filter: brightness(1.12); }
+    .ranked { display: grid; grid-template-columns: minmax(0, max-content) 1fr max-content; gap: 5px 10px; align-items: center; font-size: 13px; }
+    .ranked .track { height: 14px; }
+    .ranked .track i { display: block; height: 100%; background: var(--count); border-radius: 0 4px 4px 0; min-width: 3px; }
+    .ranked .n { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; font-size: 12.5px; }
+
+    /* The list of games. */
+    .filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+    .table-wrap { overflow-x: auto; }
+    table.games { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+    table.games th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 4px 8px; border-bottom: 1px solid var(--line); }
+    table.games td { padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    table.games td.num, table.games th.num { text-align: right; }
+    table.games .button { padding: 3px 9px; font-size: 12.5px; }
+    .more { margin-top: 10px; }
+    /* Phones: the replay button stays in view; the number of moves goes and results wrap. */
+    @media (max-width: 560px) {
+      table.games .moves { display: none; }
+      table.games td { white-space: normal; padding: 6px 4px; }
+      table.games td:first-child { white-space: nowrap; }
+    }
+
+    .tip { position: fixed; z-index: 10; pointer-events: none; background: var(--card); color: var(--ink); border: 1px solid var(--edge);
+      border-radius: 8px; padding: 6px 9px; font-size: 12.5px; box-shadow: 0 4px 14px var(--shadow); max-width: 240px; }
+    .tip b { font-size: 14px; margin-right: 4px; }
+    .tip[hidden] { display: none; }
+  </style>
+</head>
+<body>
+  <main class="stats" id="stats">
+    <header>
+      <h1>Games played</h1>
+      <span class="muted" id="about">Loading…</span>
+      <a class="button" href="./">Play Near Peer</a>
+    </header>
+  </main>
+  <div class="tip" id="tip" hidden></div>
+  <!-- Reads data/games.json, which tools/games.js keeps up to date (a GitHub Action, every day). -->
+  <script type="module" src="js/statspage.js"></script>
+</body>
+</html>

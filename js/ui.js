@@ -18,6 +18,7 @@ import * as FX from './effects.js';
 import * as Online from './online.js';
 import * as Stats from './stats.js';
 import { aiGame } from './versus.js';
+import { replayGame, SPEEDS } from './replay.js';
 import { LEVELS } from './ai.js';
 import { signal, computed, effect, batch, untracked } from './signals.js';
 
@@ -301,7 +302,7 @@ function randomFill() {
 function goOnline(roomId, create) {
   leaveGame();
   const url = new URL(location.href);
-  for (const k of ['quick', 'vs', 'side']) url.searchParams.delete(k);
+  for (const k of ['quick', 'vs', 'side', 'replay']) url.searchParams.delete(k);
   url.searchParams.set('room', roomId);
   window.history.replaceState(null, '', url);
   sharedHover = null;
@@ -316,7 +317,7 @@ function goOnline(roomId, create) {
 function goOffline() {
   leaveGame();
   const url = new URL(location.href);
-  for (const k of ['room', 'vs', 'side']) url.searchParams.delete(k);
+  for (const k of ['room', 'vs', 'side', 'replay']) url.searchParams.delete(k);
   window.history.replaceState(null, '', url);
   batch(() => {
     ui.game(localGame());
@@ -333,7 +334,7 @@ function leaveGame() {
 function playComputer(seat, level) {
   leaveGame();
   const url = new URL(location.href);
-  for (const k of ['room', 'quick']) url.searchParams.delete(k);
+  for (const k of ['room', 'quick', 'replay']) url.searchParams.delete(k);
   url.searchParams.set('vs', level);
   url.searchParams.set('side', seat ? 'red' : 'blue');
   window.history.replaceState(null, '', url);
@@ -344,8 +345,100 @@ function playComputer(seat, level) {
   });
 }
 
+// ---------------------------------------------------------------- replays
+
+// Watch a game from data/games.json (index.html?replay=<id>, linked from stats.html).
+async function watchReplay(id) {
+  try {
+    const res = await fetch('data/games.json');
+    if (!res.ok) throw new Error('the record of games played didn\'t load');
+    const game = (await res.json()).find((g) => g.id === id);
+    if (!game) throw new Error('that game isn\'t in the record');
+    const { batches } = await Stats.decode(game.data);
+    const g = replayGame(game, batches);
+    leaveGame();
+    batch(() => {
+      ui.game(g);
+      ui.selection(null);
+    });
+  } catch (e) {
+    toast(`Can't show that replay: ${e.message}`);
+  }
+}
+
+// "vs Hard, played as Red · 2026-10-25" for a game from data/games.json.
+function aboutGame(game) {
+  const vs = /^vs-(.+)$/.exec(game.mode);
+  const how = vs ? `vs ${LEVELS[vs[1]] ? LEVELS[vs[1]].name : vs[1]}, played as ${P(game.seat).name}`
+    : game.mode === 'online' ? 'Online' : 'On one computer';
+  return `${how} · ${game.date}`;
+}
+
+// Start a game on this computer from the position the replay is showing.
+function playOnFromHere(g) {
+  const at = g.at();
+  goOffline();
+  const local = ui.game();
+  batch(() => {
+    for (let i = 0; i < at; i++) local.play(g.batches[i].actions, g.states[i + 1], { quiet: true });
+  });
+}
+
+// The replay controls, above the dock's cards. Made once per replay and updated in place
+// (renderReplay), so the board redrawing doesn't interrupt dragging the slider.
+function replayControls(g) {
+  const n = g.batches.length;
+  const step = (to) => { g.pause(); g.go(to); };
+  const button = (label, title, onclick) => h('button', { title, 'aria-label': title, onclick }, label);
+  const play = h('button', { class: 'primary replay-play', onclick: () => (g.playing() ? g.pause() : g.resume()) });
+  const slider = h('input', { type: 'range', class: 'replay-slider', min: 0, max: n, step: 1, value: 0, 'aria-label': 'Move',
+    oninput: (e) => step(+e.target.value) });
+  const where = h('div', { class: 'hint' });
+  const el = [
+    h('h2', {}, 'Replay', h('span', { class: 'muted replay-about' }, aboutGame(g.replay))),
+    h('div', { class: 'row replay-buttons' },
+      button('⏮', 'Start (Home)', () => step(0)),
+      button('◀', 'Back a move (←)', () => step(g.at() - 1)),
+      play,
+      button('▶', 'Forward a move (→)', () => step(g.at() + 1)),
+      button('⏭', 'End (End)', () => step(n)),
+      h('select', { 'aria-label': 'Speed', onchange: (e) => g.setSpeed(+e.target.value) },
+        Object.keys(SPEEDS).map((x) => h('option', { value: x, selected: +x === g.speed() }, `${x}×`)))),
+    slider,
+    where,
+    h('div', { class: 'row' },
+      h('button', { onclick: () => playOnFromHere(g) }, 'Play on from here'),
+      h('a', { class: 'button', href: 'stats.html' }, 'All games')),
+  ];
+  const update = () => {
+    const at = g.at();
+    slider.value = at;
+    play.textContent = g.playing() ? '⏸ Pause' : '▶ Play';
+    where.replaceChildren(at === 0 ? `Before the first move · ${n} moves`
+      : h('span', {}, `Move ${at} of ${n}, by `, chip(g.batches[at - 1].by), P(g.batches[at - 1].by).name));
+  };
+  return { g, el, update };
+}
+
+let replayView = null; // the controls on show, from replayControls
+function renderReplay() {
+  const g = ui.game();
+  const box = $('replay');
+  box.hidden = !g.replay;
+  if (!g.replay) {
+    replayView = null;
+    return;
+  }
+  if (!replayView || replayView.g !== g) {
+    replayView = untracked(() => replayControls(g));
+    box.replaceChildren(...replayView.el);
+  }
+  replayView.update();
+}
+
 // Why you can't act right now (online, or against the computer).
 function waitText() {
+  if (ui.game().replay) return 'This is a replay';
   const o = ui.online();
   const st = ui.state();
   if (!o) return st.phase === 'over' ? 'The game is over' : 'The computer is thinking';
@@ -621,6 +714,16 @@ document.addEventListener('keydown', (e) => {
   } else if (e.key === 'Escape') {
     hideMenu();
     select(null);
+  } else if (ui.game().replay && [' ', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+    e.preventDefault();
+    const g = ui.game();
+    if (e.key === ' ') {
+      if (g.playing()) g.pause();
+      else g.resume();
+      return;
+    }
+    g.pause();
+    g.go({ ArrowLeft: g.at() - 1, ArrowRight: g.at() + 1, Home: 0, End: g.batches.length }[e.key]);
   } else if (e.key === 'z' || e.key === 'u') {
     e.preventDefault();
     undo();
@@ -657,6 +760,7 @@ function mount() {
   effect(renderHoverInfo);
   effect(renderStatus);
   effect(renderDock);
+  effect(renderReplay);
   effect(renderPanel);
   effect(autoPlace);
   // Every change to the game goes to stats.js, which sends the game when it ends or is left.
@@ -1148,7 +1252,7 @@ function renderStatus() {
       : over ? h('strong', {}, chip(st.winner), `${P(st.winner).name} wins`)
       : h('span', {}, chip(st.current), h('strong', {}, P(st.current).name), ' to play',
         ui.seat() === st.current ? ' (you)' : ui.game().vs ? ' (computer)' : null),
-    h('span', { class: 'muted' }, ` · ${phase}`));
+    h('span', { class: 'muted' }, ` · ${phase}${ui.game().replay ? ' · replay' : ''}`));
 }
 
 function renderDock() {
@@ -1156,11 +1260,12 @@ function renderDock() {
   const o = ui.online();
   const waiting = o && o.status() === 'ready' && o.seat() !== null && !o.opponent();
   const play = st.phase === 'battle' || st.phase === 'over';
+  const replay = !!ui.game().replay; // the replay controls are above the cards (renderReplay)
   $('dock-cards').replaceChildren(...[
     waiting ? inviteCard(o) : null,
     st.phase === 'over' ? winCard(st) : null,
-    buildKind(st) && !waiting ? buildCard(st) : null,
-    st.phase === 'battle' && !waiting ? actionsCard(st) : null,
+    buildKind(st) && !waiting && !replay ? buildCard(st) : null,
+    st.phase === 'battle' && !waiting && !replay ? actionsCard(st) : null,
     play && liveUnit(ui.selected()) ? selectedCard(st) : null,
   ].filter(Boolean));
 }
@@ -1176,7 +1281,7 @@ function inviteCard(o) {
 
 function renderPanel() {
   const st = ui.state();
-  $('panel').replaceChildren(computerCard(), onlineCard(st), controlsCard(), rulesCard(st), logCard(st));
+  $('panel').replaceChildren(computerCard(), onlineCard(st), controlsCard(), statsCard(), rulesCard(st), logCard(st));
 }
 
 function openSheet(open) {
@@ -1188,6 +1293,11 @@ function openSheet(open) {
   }
 }
 $('menu-open').addEventListener('click', () => openSheet(true));
+
+// Inside another page (an X post's player card), offer the game in its own tab, at the current address.
+const framed = (() => { try { return window.top !== window; } catch (e) { return true; } })();
+$('pop-out').hidden = !framed;
+$('pop-out').addEventListener('click', (e) => { e.currentTarget.href = location.href; });
 $('menu-close').addEventListener('click', () => openSheet(false));
 
 // The result: who won and how, or a stalemate (winner null).
@@ -1196,7 +1306,7 @@ function winCard(st) {
   return h('section', { class: 'card win', style: `border-color:${stalemate ? '#999' : P(st.winner).color}` },
     stalemate ? h('div', { class: 'win-title' }, 'Stalemate') : h('div', { class: 'win-title' }, chip(st.winner), `${P(st.winner).name} wins!`),
     h('div', {}, stalemate ? `Nobody wins: ${st.winReason}.` : `${P(st.winner).name} ${st.winReason}.`),
-    ui.online() && ui.online().seat() === null ? null : h('button', { class: 'primary', onclick: newGame }, 'New game'));
+    ui.game().replay || (ui.online() && ui.online().seat() === null) ? null : h('button', { class: 'primary', onclick: newGame }, 'New game'));
 }
 
 function buildCard(st) {
@@ -1373,6 +1483,14 @@ function controlsCard() {
       toggle('threats', 'Show attack arrows on every enemy you can capture'),
       toggle('coords', 'Show hex coordinates')),
     h('div', { class: 'settings' }, styleSelect('Map', 'mapStyle', 'map-style'), styleSelect('Units', 'unitStyle', 'unit-style'), themeSelect()));
+}
+
+// The statistics page (stats.html), and what's recorded for it (stats.js).
+function statsCard() {
+  return h('section', { class: 'card' },
+    h('h2', {}, 'Games played'),
+    h('p', { class: 'hint' }, 'How the games played here went, and a replay of each one. Games are recorded anonymously, without cookies.'),
+    h('a', { class: 'button', href: 'stats.html' }, 'See the games played'));
 }
 
 // Play against the computer: pick a side (and a level, once there's more than one).
@@ -1556,9 +1674,12 @@ setupPointer();
 // index.html?room=… joins (or rejoins) that online game.
 // index.html?vs=hard plays the computer at that level (&side=red to play Red).
 // index.html?quick skips straight to the battle with a random setup.
+// index.html?replay=<id> watches a game from data/games.json (stats.html links to them).
 const params = new URLSearchParams(location.search);
 const room = (params.get('room') || '').replace(/[^a-z0-9-]/gi, '').slice(0, 40);
-if (room) goOnline(room, false);
+const replayId = (params.get('replay') || '').replace(/[^a-z0-9]/g, '').slice(0, 20);
+if (replayId) watchReplay(replayId);
+else if (room) goOnline(room, false);
 else if (LEVELS[params.get('vs')]) playComputer(params.get('side') === 'red' ? 1 : 0, params.get('vs'));
 else if (params.has('quick')) {
   randomFill();
