@@ -1281,7 +1281,7 @@ function inviteCard(o) {
 
 function renderPanel() {
   const st = ui.state();
-  $('panel').replaceChildren(computerCard(), onlineCard(st), controlsCard(), statsCard(), rulesCard(st), logCard(st));
+  $('panel').replaceChildren(computerCard(), onlineCard(st), controlsCard(), rulesCard(st), logCard(st), creditsCard());
 }
 
 function openSheet(open) {
@@ -1485,12 +1485,11 @@ function controlsCard() {
     h('div', { class: 'settings' }, styleSelect('Map', 'mapStyle', 'map-style'), styleSelect('Units', 'unitStyle', 'unit-style'), themeSelect()));
 }
 
-// The statistics page (stats.html), and what's recorded for it (stats.js).
-function statsCard() {
-  return h('section', { class: 'card' },
-    h('h2', {}, 'Games played'),
-    h('p', { class: 'hint' }, 'How the games played here went, and a replay of each one. Games are recorded anonymously, without cookies.'),
-    h('a', { class: 'button', href: 'stats.html' }, 'See the games played'));
+// The last line of the menu: who made the game, and the statistics page (stats.html).
+function creditsCard() {
+  return h('section', { class: 'card credits' },
+    h('span', { class: 'muted' }, 'Created by James K. Wiles'),
+    h('a', { class: 'button', href: 'stats.html' }, 'See game statistics'));
 }
 
 // Play against the computer: pick a side (and a level, once there's more than one).

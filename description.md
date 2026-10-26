@@ -98,3 +98,5 @@ The ranged unit can target any unit 2 tiles away, the same as how a light unit c
 That's the whole game.
 
 [another dynamic to consider later is for the build phase to be blind to opposing players, so you build your area of control without seeing what your opponent is building and you just place in any cofiguration you want without needing to take turns and consider everything your opponent is doing. Kind like a fog of war dynamic]
+
+-- James K. Wiles (initial game design description)

@@ -121,6 +121,8 @@ body { overflow: hidden; }
   .hover-info { margin: auto 0 0; padding-top: 8px; } /* at the foot of the column */
 }
 
+.credits { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+
 /* Watching a recorded game (index.html?replay=…): the controls at the top of the dock. */
 .dock .replay { max-width: 560px; margin: 0 auto 8px; }
 .replay-about { font-weight: 400; font-size: 12.5px; margin-left: auto; }
