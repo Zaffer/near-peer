@@ -1255,9 +1255,9 @@ function renderStatus() {
   el.replaceChildren(
     stalemate ? h('strong', {}, 'Stalemate')
       : over ? h('strong', {}, chip(st.winner), `${P(st.winner).name} wins`)
-      : h('span', {}, chip(st.current), h('strong', {}, P(st.current).name), ' to play',
+      : h('span', {}, chip(st.current), h('strong', {}, P(st.current).name), h('span', { class: 'status-verb' }, ' to play'),
         ui.seat() === st.current ? ' (you)' : ui.game().vs ? ' (computer)' : null),
-    h('span', { class: 'muted' }, ` · ${phase}${ui.game().replay ? ' · replay' : ''}`));
+    h('span', { class: 'muted status-phase' }, `${phase}${ui.game().replay ? ' · replay' : ''}`));
 }
 
 function renderDock() {
@@ -1327,7 +1327,7 @@ function buildCard(st) {
   const desc = (item) => kind === 'terrain'
     ? modsEl(defs[item].mods)
     : unitStatsEl(defs[item]);
-  return h('section', { class: 'card' },
+  return h('section', { class: 'card build' },
     h('h2', {}, kind === 'terrain' ? 'Place terrain' : 'Place units'),
     h('div', { class: 'picks' }, [...new Set(sup)].map((item) =>
       h('button', {
@@ -1339,7 +1339,7 @@ function buildCard(st) {
         kind === 'units' ? (defs[item].skills || []).map((sk) =>
           h('span', { class: 'pick-skill', title: `${R.skills[sk].name}: ${R.skills[sk].description}` }, iconEl('skills', sk, 'currentColor', 13))) : null),
         h('span', { class: 'pick-desc' }, desc(item))))),
-    h('p', { class: 'hint' }, 'Pick a piece, then click a highlighted hex in your zone. ',
+    h('p', { class: 'hint how' }, 'Pick a piece, then click a highlighted hex in your zone. ',
       `${P(1 - st.current).name} has ${opp} left.`),
     h('div', { class: 'row' },
       undoButton(),
@@ -1359,13 +1359,13 @@ function actionsCard(st) {
   let move = 'ready';
   if (ts.moveDone) move = 'done';
   else if (ts.move && st.units[ts.move.unitId]) move = `${R.units[st.units[ts.move.unitId].type].name}: ${ts.move.remaining} left`;
-  return h('section', { class: 'card' },
+  return h('section', { class: 'card actions' },
     h('h2', {}, 'This turn'),
     h('div', { class: 'pills' }, h('span', { class: `pill${ts.moveDone ? ' done' : ''}` }, `Move: ${move}`)),
     h('div', { class: 'row' },
       h('button', { class: 'primary', disabled: !myTurn(st), onclick: () => commit({ type: 'endTurn' }) }, ts.move || ts.moveDone ? 'End turn (E)' : 'Pass (E)'),
       undoButton()),
-    h('p', { class: 'hint' }, myTurn(st) ? 'Move one unit, then end your turn. Move onto one of your own units to merge with it.' : `${waitText()}.`));
+    h('p', { class: `hint${myTurn(st) ? ' how' : ''}` }, myTurn(st) ? 'Move one unit, then end your turn. Move onto one of your own units to merge with it.' : `${waitText()}.`));
 }
 
 function selectedCard(st) {
@@ -1405,14 +1405,14 @@ function selectedCard(st) {
   const verdict = a.beats
     ? h('b', { class: 'capt-text' }, foe === st.current ? 'capturable: step onto it' : `${P(foe).name} could capture it`)
     : h('span', { class: 'muted' }, 'safe');
-  const threat = h('div', { class: 'targets' },
+  const threat = h('div', { class: 'targets threat' },
     h('h3', {}, foe === st.current ? 'Your attack on it' : `${P(foe).name} attack on it`),
     a.contributors.length
       ? h('div', {}, a.contributors.flatMap((c, i) => [i ? ' + ' : '', `${unitName(st, c.id)} ${c.attack}`]),
         ` = ${a.total} vs ${a.defence} defence · `, verdict)
       : h('div', { class: 'muted' }, 'No enemy in range.'));
 
-  return h('section', { class: 'card' },
+  return h('section', { class: 'card unit' },
     h('h2', {}, unitMini(u.type, u.player), unitLabel(u),
       capturable(st, u) ? h('span', { class: 'tag capt' }, 'capturable') : null),
     h('div', { class: 'muted with-icon' }, `${TIER[def.tier]} · `, iconEl('terrain', u.hex && st.hexes[u.hex].terrain), `On ${terr.name}`, Object.keys(terr.mods).length ? modsEl(terr.mods) : null),
